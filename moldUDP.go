@@ -1,6 +1,7 @@
 package MoldUDP
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"github.com/op/go-logging"
@@ -44,6 +45,7 @@ func EncodeHead(buff []byte, head *Header) error {
 	if len(buff) < headSize {
 		return errTooShort
 	}
+	copy(buff[:10], bytes.Repeat([]byte("  "), 5))
 	copy(buff[:10], []byte(head.Session))
 	coder.PutUint64(buff[10:18], head.SeqNo)
 	coder.PutUint16(buff[18:20], head.MessageCnt)
@@ -55,7 +57,7 @@ func DecodeHead(buff []byte) (*Header, error) {
 		return nil, errTooShort
 	}
 	head := Header{}
-	head.Session = string(buff[:10])
+	head.Session = string(bytes.TrimRight(buff[:10], " "))
 	head.SeqNo = coder.Uint64(buff[10:18])
 	head.MessageCnt = coder.Uint16(buff[18:20])
 	return &head, nil

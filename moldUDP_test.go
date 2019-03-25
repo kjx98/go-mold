@@ -1,54 +1,38 @@
 package MoldUDP
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
 )
 
+var head0 = Header{Session: "test0", SeqNo: 1, MessageCnt: 2}
+var headBytes [20]byte
+
+func init() {
+	copy(headBytes[:], []byte(bytes.Repeat([]byte("  "), 5)))
+	copy(headBytes[:], []byte(head0.Session))
+	headBytes[17] = 1
+	headBytes[19] = 2
+}
+
 func TestEncodeHead(t *testing.T) {
-	type args struct {
-		buff []byte
-		head *Header
+	bb := make([]byte, 20)
+	if err := EncodeHead(bb, &head0); err != nil {
+		t.Error("EncodeHead()", err)
 	}
-	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := EncodeHead(tt.args.buff, tt.args.head); (err != nil) != tt.wantErr {
-				t.Errorf("EncodeHead() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+	if !bytes.Equal(bb, headBytes[:]) {
+		t.Errorf("EncodeHead() expect %v, buff got %v", headBytes, bb)
 	}
 }
 
 func TestDecodeHead(t *testing.T) {
-	type args struct {
-		buff []byte
+	hh, err := DecodeHead(headBytes[:])
+	if err != nil {
+		t.Error("DecodeHead()", err)
 	}
-	tests := []struct {
-		name    string
-		args    args
-		want    *Header
-		wantErr bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := DecodeHead(tt.args.buff)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("DecodeHead() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("DecodeHead() = %v, want %v", got, tt.want)
-			}
-		})
+	if hh.Session != head0.Session || hh.SeqNo != head0.SeqNo || hh.MessageCnt != head0.MessageCnt {
+		t.Errorf("DecodeHead() expect %v, buff got %v", head0, hh)
 	}
 }
 
