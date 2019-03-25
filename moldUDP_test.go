@@ -8,12 +8,24 @@ import (
 
 var head0 = Header{Session: "test0", SeqNo: 1, MessageCnt: 2}
 var headBytes [20]byte
+var msgBuf0 []byte
+var msgBuf1 []byte
+var msgBuf2 []byte
+var msg0, msg1 Message
 
 func init() {
 	copy(headBytes[:], []byte(bytes.Repeat([]byte("  "), 5)))
 	copy(headBytes[:], []byte(head0.Session))
 	headBytes[17] = 1
 	headBytes[19] = 2
+	msgBuf0 = make([]byte, 256)
+	msgBuf0[1] = 8
+	msgBuf0[11] = 208
+	msgBuf0[221] = 64
+	msgBuf1 = msgBuf0[:10]
+	msgBuf2 = msgBuf0[:220]
+	msg0.Data = msgBuf0[2:10]
+	msg1.Data = msgBuf0[12:220]
 }
 
 func TestEncodeHead(t *testing.T) {
@@ -21,14 +33,14 @@ func TestEncodeHead(t *testing.T) {
 	if err := EncodeHead(bb, &head0); err != nil {
 		t.Error("EncodeHead()", err)
 	}
-	if !bytes.Equal(bb, headBytes[:]) {
+	if !reflect.DeepEqual(bb, headBytes[:]) {
 		t.Errorf("EncodeHead() expect %v, buff got %v", headBytes, bb)
 	}
 }
 
 func TestDecodeHead(t *testing.T) {
-	hh, err := DecodeHead(headBytes[:])
-	if err != nil {
+	var hh Header
+	if err := DecodeHead(headBytes[:], &hh); err != nil {
 		t.Error("DecodeHead()", err)
 	}
 	if hh.Session != head0.Session || hh.SeqNo != head0.SeqNo || hh.MessageCnt != head0.MessageCnt {
@@ -37,20 +49,20 @@ func TestDecodeHead(t *testing.T) {
 }
 
 func TestUnmarshal(t *testing.T) {
-	type args struct {
-		buff []byte
-	}
 	tests := []struct {
 		name    string
-		args    args
+		arg     []byte
 		wantRet []Message
 		wantErr bool
 	}{
 		// TODO: Add test cases.
+		{"Unmarshal1", msgBuf0, nil, true},
+		{"Unmarshal2", msgBuf1, []Message{msg0}, false},
+		{"Unmarshal3", msgBuf2, []Message{msg0, msg1}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotRet, err := Unmarshal(tt.args.buff)
+			gotRet, err := Unmarshal(tt.arg)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Unmarshal() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -74,16 +86,36 @@ func TestMarshal(t *testing.T) {
 		wantBufLen int
 	}{
 		// TODO: Add test cases.
+		{"testMarshal1", args{msgBuf1, []Message{msg0}}, 1, 10},
+		{"testMarshal2", args{msgBuf2, []Message{msg0, msg1}}, 2, 220},
 	}
+	buff := make([]byte, 256)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotMsgCnt, gotBufLen := Marshal(tt.args.buff, tt.args.msgs)
+			gotMsgCnt, gotBufLen := Marshal(buff, tt.args.msgs)
 			if gotMsgCnt != tt.wantMsgCnt {
 				t.Errorf("Marshal() gotMsgCnt = %v, want %v", gotMsgCnt, tt.wantMsgCnt)
 			}
 			if gotBufLen != tt.wantBufLen {
 				t.Errorf("Marshal() gotBufLen = %v, want %v", gotBufLen, tt.wantBufLen)
 			}
+			if !reflect.DeepEqual(buff[:gotBufLen], tt.args.buff) {
+				t.Errorf("Marshal buffer = %v, want %v", buff[:gotBufLen], tt.args.buff)
+			}
 		})
+	}
+}
+
+func BenchmarkEncodeHead(b *testing.B) {
+	bb := make([]byte, 20)
+	for i := 0; i < b.N; i++ {
+		EncodeHead(bb, &head0)
+	}
+}
+
+func BenchmarkDecodeHead(b *testing.B) {
+	var hh Header
+	for i := 0; i < b.N; i++ {
+		DecodeHead(headBytes[:], &hh)
 	}
 }

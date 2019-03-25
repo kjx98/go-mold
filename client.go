@@ -105,8 +105,8 @@ func (c *Client) Read() ([]Message, error) {
 		}
 		c.nRecvs++
 		c.LastRecv = time.Now().Unix()
-		head, err := DecodeHead(c.buff[:n])
-		if err != nil {
+		var head Header
+		if err := DecodeHead(c.buff[:n], &head); err != nil {
 			log.Error("DecodeHead from", remoteAddr, " ", err)
 			c.nError++
 			continue
