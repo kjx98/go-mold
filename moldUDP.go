@@ -20,6 +20,7 @@ var (
 	errUnmarshal  = errors.New("Unmarshal error")
 	errMessageCnt = errors.New("MessageCount not zero without payload message")
 	errClosed     = errors.New("socket already closed")
+	errNoIP       = errors.New("No IP addr")
 )
 
 // a MoldUDP packet may contain multiple messages

@@ -76,8 +76,11 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 	} else {
 		log.Error("Get UDPConn fd", err)
 	}
-	if err := UDPMulticast(fd, client.dst.IP, ifn); err != nil {
+	if err := JoinMulticast(fd, client.dst.IP, ifn); err != nil {
 		log.Info("add multicast group", err)
+	}
+	if err := SetMulticastInterface(fd, ifn); err != nil {
+		log.Info("set multicast interface", err)
 	}
 	for _, daddr := range opt.Srvs {
 		ss := strings.Split(daddr, ":")
