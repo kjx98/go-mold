@@ -39,14 +39,20 @@ func JoinMulticast(fd int, maddr net.IP, ifn *net.Interface) error {
 }
 
 func SetMulticastInterface(fd int, ifn *net.Interface) error {
-	var sVal string
+	var sVal [4]byte
+	//var sVal string
 	if ifAddr, err := getIfAddr(ifn); err != nil {
 		return err
 	} else {
-		sVal = string(ifAddr.To4())
+		//sVal = string(ifAddr.To4())
+		copy(sVal[:], ifAddr.To4())
 		log.Info("Set out Multicast interface to", ifAddr)
 	}
-	err := syscall.SetsockoptString(fd, syscall.IPPROTO_IP,
+	/*
+		err := syscall.SetsockoptString(fd, syscall.IPPROTO_IP,
+			syscall.IP_MULTICAST_IF, sVal)
+	*/
+	err := syscall.SetsockoptInet4Addr(fd, syscall.IPPROTO_IP,
 		syscall.IP_MULTICAST_IF, sVal)
 	return err
 }
