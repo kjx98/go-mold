@@ -6,6 +6,7 @@ import (
 	"github.com/kjx98/go-mold"
 	"github.com/op/go-logging"
 	"os"
+	"time"
 )
 
 var log = logging.MustGetLogger("mold-client")
@@ -24,9 +25,42 @@ func main() {
 		os.Exit(2)
 	}
 	flag.Parse()
-	if cc, err := MoldUDP.NewClient(maddr, port, &opt); err != nil {
+	cc, err := MoldUDP.NewClient(maddr, port, &opt)
+	if err != nil {
 		log.Error("NewClient", err)
-	} else {
-		cc.Close()
+		os.Exit(1)
 	}
+	cc.Running = true
+	waits := int64(10)
+	tick := time.NewTicker(time.Second)
+	go func() {
+		for cc.Running {
+			select {
+			case <-tick.C:
+				tt := time.Now().Unix()
+				if cc.LastRecv == 0 {
+					cc.LastRecv = tt
+				} else if cc.LastRecv+waits < tt {
+					cc.Running = false
+					log.Errorf("No UDP recv for %d seconds", waits)
+				}
+			}
+		}
+		cc.DumpStats()
+		time.Sleep(time.Second * 3)
+		os.Exit(0)
+	}()
+	for cc.Running {
+		mess, err := cc.Read()
+		if err != nil {
+			fmt.Println("Client Read", err)
+			continue
+		}
+		if mess == nil {
+			break
+		}
+		fmt.Printf("Got %d messages", len(mess))
+	}
+	cc.DumpStats()
+	cc.Close()
 }

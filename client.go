@@ -16,10 +16,14 @@ const (
 	maxMessages = 1024
 )
 
+// Client struct for MoldUDP client
+//	Running		bool
+//	LastRecv	int64	last time recv UDP
 type Client struct {
 	dst                      net.UDPAddr
 	conn                     *net.UDPConn
 	Running                  bool
+	LastRecv                 int64
 	seqNo                    uint64
 	reqLast                  int64
 	nRecvs, nError, nRequest int
@@ -97,6 +101,7 @@ func (c *Client) Read() ([]Message, error) {
 			continue
 		}
 		c.nRecvs++
+		c.LastRecv = time.Now().Unix()
 		head, err := DecodeHead(c.buff[:n])
 		if err != nil {
 			log.Error("DecodeHead from", remoteAddr, " ", err)
