@@ -34,14 +34,24 @@ type Option struct {
 	nextSeq uint64
 }
 
+func (c *Client) Close() error {
+	if c.fd < 0 {
+		return errClosed
+	}
+	err := syscall.Close(c.fd)
+	c.fd = -1
+	return err
+}
+
 func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 	var err error
-	client := Client{seqNo: opt.nextSeq, port: port}
+	client := Client{fd: -1, seqNo: opt.nextSeq, port: port}
 	if maddr := net.ParseIP(udpAddr); maddr != nil {
 		copy(client.dst[:], maddr[12:16])
 	}
 	var ifn *net.Interface
 	if opt.IfName != "" {
+		log.Info("Try ifname", opt.IfName, " for multicast")
 		if ifn, err = net.InterfaceByName(opt.IfName); err != nil {
 			log.Errorf("Ifn(%s) error: %v\n", opt.IfName, err)
 			ifn = nil
@@ -61,9 +71,13 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 	var mreq = &syscall.IPMreq{Multiaddr: client.dst}
 	if ifn != nil {
 		if addrs, err := ifn.Addrs(); err != nil {
-			if ifAddr := net.ParseIP(addrs[0].String()); ifAddr != nil {
+			log.Info("Get if Addr", err)
+		} else if len(addrs) > 0 {
+			adr := strings.Split(addrs[0].String(), "/")[0]
+			log.Infof("Try %s for MC group", adr)
+			if ifAddr := net.ParseIP(adr); ifAddr != nil {
 				copy(mreq.Interface[:], ifAddr[12:16])
-				log.Info("Use ", addrs[0], " for Multicast interface")
+				log.Info("Use ", adr, " for Multicast interface")
 			}
 		}
 	}
@@ -156,7 +170,7 @@ func (c *Client) request(seqNo uint64) {
 		log.Error("EncodeHead for Req reTrans", err)
 		return
 	}
-	if err := syscall.Sendto(c.fd, buff, 0, c.reqSrv[c.robinN]); err != nil {
+	if err := syscall.Sendto(c.fd, buff, 0, &c.reqSrv[c.robinN]); err != nil {
 		log.Error("Req reTrans", err)
 	}
 	c.robinN++

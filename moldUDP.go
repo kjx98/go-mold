@@ -18,6 +18,7 @@ var (
 	errTooShort   = errors.New("buffer too short")
 	errUnmarshal  = errors.New("Unmarshal error")
 	errMessageCnt = errors.New("MessageCount not zero without payload message")
+	errClosed     = errors.New("socket already closed")
 )
 
 // a MoldUDP packet may contain multiple messages
