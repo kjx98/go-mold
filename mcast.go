@@ -70,3 +70,12 @@ func SetMulticastTTL(fd, ttl int) error {
 	return syscall.SetsockoptInt(fd, syscall.IPPROTO_IP,
 		syscall.IP_MULTICAST_TTL, ttl)
 }
+
+func SetMulticastLoop(fd int, bLoop bool) error {
+	var iVal = 0
+	if bLoop {
+		iVal = 1
+	}
+	return syscall.SetsockoptInt(fd, syscall.IPPROTO_IP,
+		syscall.IP_MULTICAST_LOOP, iVal)
+}
