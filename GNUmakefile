@@ -33,6 +33,7 @@ link:
 
 test:
 	@go test
+	@go test -tags norecover
 
 bench:
 	sudo cpupower frequency-set --governor performance
@@ -40,6 +41,7 @@ bench:
 	sudo cpupower frequency-set --governor powersave
 
 clean:
+	@rm -f bin/*
 
 distclean: clean
 	@rm -rf bin build

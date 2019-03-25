@@ -1,4 +1,4 @@
-// +build !rawSocket
+// +build rawSocket
 
 package MoldUDP
 
@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kjx98/golib/to"
@@ -17,14 +18,15 @@ const (
 )
 
 type Client struct {
-	dst                      net.UDPAddr
-	conn                     *net.UDPConn
+	dst                      [4]byte
+	fd                       int
+	port                     int
 	Running                  bool
 	seqNo                    uint64
-	reqLast                  int64
+	reqLast                  int64 // time for last retrans Request
 	nRecvs, nError, nRequest int
 	robinN                   int
-	reqSrv                   []*net.UDPAddr
+	reqSrv                   []syscall.SockaddrInet4
 	session                  string
 	buff                     []byte
 }
@@ -36,54 +38,76 @@ type Option struct {
 }
 
 func (c *Client) Close() error {
-	if c.conn == nil {
+	if c.fd < 0 {
 		return errClosed
 	}
-	err := c.conn.Close()
-	c.conn = nil
+	err := syscall.Close(c.fd)
+	c.fd = -1
 	return err
 }
 
 func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 	var err error
-	client := Client{seqNo: opt.nextSeq}
-	client.dst.IP = net.ParseIP(udpAddr)
-	client.dst.Port = port
-	if !client.dst.IP.IsMulticast() {
-		log.Info(client.dst.IP, " is not multicast IP")
-		client.dst.IP = net.IPv4(224, 0, 0, 1)
+	client := Client{fd: -1, seqNo: opt.nextSeq, port: port}
+	if maddr := net.ParseIP(udpAddr); maddr != nil {
+		if maddr.IsMulticast() {
+			copy(client.dst[:], maddr.To4())
+		} else {
+			// set to 224.0.0.1
+			client.dst[0] = 224
+			client.dst[3] = 1
+		}
 	}
 	var ifn *net.Interface
 	if opt.IfName != "" {
+		log.Info("Try ifname", opt.IfName, " for multicast")
 		if ifn, err = net.InterfaceByName(opt.IfName); err != nil {
 			log.Errorf("Ifn(%s) error: %v\n", opt.IfName, err)
 			ifn = nil
 		}
 	}
-	var fd int = -1
-	//client.conn, err = net.ListenMulticastUDP("udp", ifn, &client.dst)
-	laddr := net.UDPAddr{IP: net.IPv4(0, 0, 0, 0), Port: port}
-	client.conn, err = net.ListenUDP("udp", &laddr)
+	client.fd, err = syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
 	if err != nil {
 		return nil, err
 	}
-	if ff, err := client.conn.File(); err == nil {
-		fd = int(ff.Fd())
-	} else {
-		log.Error("Get UDPConn fd", err)
+	// set Multicast
+	err = syscall.Bind(client.fd, &syscall.SockaddrInet4{Port: port})
+	if err != nil {
+		syscall.Close(client.fd)
+		log.Error("syscall.Bind", err)
+		return nil, err
 	}
-	if err := UDPMulticast(fd, client.dst.IP, ifn); err != nil {
-		log.Info("add multicast group", err)
+	var mreq = &syscall.IPMreq{Multiaddr: client.dst}
+	if ifn != nil {
+		if addrs, err := ifn.Addrs(); err != nil {
+			log.Info("Get if Addr", err)
+		} else if len(addrs) > 0 {
+			adr := strings.Split(addrs[0].String(), "/")[0]
+			log.Infof("Try %s for MC group", adr)
+			if ifAddr := net.ParseIP(adr); ifAddr != nil {
+				copy(mreq.Interface[:], ifAddr.To4())
+				log.Info("Use ", adr, " for Multicast interface")
+			}
+		}
+	}
+	err = syscall.SetsockoptIPMreq(client.fd, syscall.IPPROTO_IP, syscall.IP_ADD_MEMBERSHIP, mreq)
+	if err != nil {
+		log.Info("add multi group", err)
 	}
 	for _, daddr := range opt.Srvs {
 		ss := strings.Split(daddr, ":")
-		udpA := net.UDPAddr{IP: net.ParseIP(ss[0])}
-		if len(ss) == 1 {
-			udpA.Port = port
+		if srvAddr := net.ParseIP(ss[0]); srvAddr == nil {
+			continue
 		} else {
-			udpA.Port = to.Int(ss[1])
+			udpA := syscall.SockaddrInet4{}
+			copy(udpA.Addr[:], srvAddr.To4())
+			if len(ss) == 1 {
+				udpA.Port = port
+			} else {
+				udpA.Port = to.Int(ss[1])
+			}
+			client.reqSrv = append(client.reqSrv, udpA)
 		}
-		client.reqSrv = append(client.reqSrv, &udpA)
 	}
 	client.buff = make([]byte, 2048)
 	return &client, nil
@@ -91,7 +115,7 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 
 func (c *Client) Read() ([]Message, error) {
 	for c.Running {
-		n, remoteAddr, err := c.conn.ReadFromUDP(c.buff)
+		n, remoteAddr, err := syscall.Recvfrom(c.fd, c.buff, 0)
 		if err != nil {
 			log.Error("ReadFromUDP from", remoteAddr, " ", err)
 			continue
@@ -109,7 +133,10 @@ func (c *Client) Read() ([]Message, error) {
 			continue
 		}
 		if len(c.reqSrv) == 0 {
-			c.reqSrv = append(c.reqSrv, remoteAddr)
+			// try add source as Request server
+			if adr, ok := remoteAddr.(*syscall.SockaddrInet4); ok {
+				c.reqSrv = append(c.reqSrv, *adr)
+			}
 		}
 		if c.session == "" {
 			c.session = head.Session
@@ -169,7 +196,7 @@ func (c *Client) request(seqNo uint64) {
 		return
 	}
 	c.nRequest++
-	if _, err := c.conn.WriteToUDP(buff, c.reqSrv[c.robinN]); err != nil {
+	if err := syscall.Sendto(c.fd, buff, 0, &c.reqSrv[c.robinN]); err != nil {
 		log.Error("Req reTrans", err)
 	}
 	c.robinN++
