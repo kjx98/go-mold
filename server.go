@@ -200,6 +200,7 @@ func (c *Server) ServerLoop() {
 			mcastBuff(bLen)
 			seqNo += msgCnt
 		}
+		c.seqNo = uint64(seqNo)
 		dur := time.Now().Sub(st)
 		// sleep to 1 ms
 		if dur < time.Microsecond*900 {

@@ -63,15 +63,17 @@ func main() {
 	// fill Messages
 	msgs := []MoldUDP.Message{}
 	enDate := julian.FromUint32(20180101)
-	if eur, err := ats.LoadTickFX("EURUSD", 0, enDate, 0); err == nil {
+	if eur, err := ats.LoadTickFX("EURUSD", 0, enDate, 50000000); err == nil {
 		log.Infof("Load %d EURUSD ticks", len(eur))
 		for i := 0; i < len(eur); i++ {
 			msg := MoldUDP.Message{}
 			msg.Data = ats.TickFX2Bytes(eur[i : i+1])
 			msgs = append(msgs, msg)
 		}
+		log.Info("Loaded EURUSD ticks")
 	}
 	cc.FeedMessages(msgs)
+	log.Info("Start Multicast & RequestSrv")
 	st := time.Now()
 	go cc.RequestLoop()
 	go cc.ServerLoop()
