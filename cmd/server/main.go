@@ -26,7 +26,7 @@ func main() {
 	flag.StringVar(&ifName, "i", "", "Interface name for multicast")
 	flag.BoolVar(&bLoop, "l", false, "multicast loopback")
 	flag.IntVar(&port, "p", 5858, "UDP port to listen")
-	flag.IntVar(&ppms, "s", 500, "PPms packets per ms")
+	flag.IntVar(&ppms, "s", 100, "PPms packets per ms")
 	flag.IntVar(&tickCnt, "c", 40000000, "max tick count load")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: server [options]\n")
@@ -70,7 +70,7 @@ func main() {
 		log.Infof("Load %d EURUSD ticks, last TickTime: %v", cnt, eur[cnt-1].Time)
 		for i := 0; i < cnt; i++ {
 			msg := MoldUDP.Message{}
-			msg.Data = ats.TickFX2Bytes(eur[i : i+1])
+			msg.Data = ats.TickFX2Bytes(&eur[i])
 			msgs = append(msgs, msg)
 		}
 		log.Info("Loaded EURUSD ticks")
@@ -80,10 +80,14 @@ func main() {
 	st := time.Now()
 	go cc.RequestLoop()
 	go cc.ServerLoop()
+	nextDisp := st.Unix() + 30
 	for cc.Running {
 		time.Sleep(time.Second)
 		if cc.SeqNo() >= len(msgs) {
 			cc.EndSession()
+		} else if time.Now().Unix() >= nextDisp {
+			cc.DumpStats()
+			nextDisp = time.Now().Unix() + 30
 		}
 	}
 	du := time.Now().Sub(st)

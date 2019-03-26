@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kjx98/go-ats"
 	MoldUDP "github.com/kjx98/go-mold"
 	logging "github.com/op/go-logging"
 )
@@ -19,6 +20,7 @@ var opt MoldUDP.Option
 func main() {
 	var maddr string
 	var port int
+	var firstP, lastP []MoldUDP.Message
 	flag.StringVar(&maddr, "m", "224.0.0.1", "Multicast IPv4 to listen")
 	flag.StringVar(&opt.IfName, "i", "", "Interface name for multicast")
 	flag.IntVar(&port, "p", 5858, "UDP port to listen")
@@ -65,7 +67,11 @@ func main() {
 			if mess == nil {
 				break
 			}
-			log.Errorf("Got %d messages", len(mess))
+			if firstP == nil {
+				log.Infof("Got first %d messages", len(mess))
+				firstP = mess
+			}
+			lastP = mess
 		}
 		// should we stop?
 		cc.Running = false
@@ -83,6 +89,18 @@ func main() {
 				cc.Running = false
 				log.Errorf("No UDP recv for %d seconds", waits)
 			}
+		}
+	}
+	if len(firstP) > 0 {
+		tic := ats.Bytes2TickFX(firstP[0].Data)
+		if tic != nil {
+			log.Info("First message:", tic)
+		}
+	}
+	if cnt := len(lastP); cnt > 0 {
+		tic := ats.Bytes2TickFX(lastP[cnt-1].Data)
+		if tic != nil {
+			log.Info("Last message:", tic)
 		}
 	}
 	cc.DumpStats()

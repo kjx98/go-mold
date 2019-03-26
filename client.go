@@ -99,6 +99,7 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 	}
 	client.buff = make([]byte, 2048)
 	client.Running = true
+	client.LastRecv = time.Now().Unix()
 	return &client, nil
 }
 
@@ -126,6 +127,7 @@ func (c *Client) Read() ([]Message, error) {
 			continue
 		}
 		if len(c.reqSrv) == 0 {
+			log.Info("No reqSrv, add reqSrv", remoteAddr)
 			c.reqSrv = append(c.reqSrv, remoteAddr)
 		}
 		if c.session == "" {
@@ -183,13 +185,16 @@ func (c *Client) request(seqNo uint64) {
 	}
 	head := Header{Session: c.session, SeqNo: c.seqNo}
 	head.MessageCnt = uint16(cnt)
-	buff := make([]byte, headSize)
-	if err := EncodeHead(buff, &head); err != nil {
+	buff := [headSize]byte{}
+	if err := EncodeHead(buff[:], &head); err != nil {
 		log.Error("EncodeHead for Req reTrans", err)
 		return
 	}
 	c.nRequest++
-	if _, err := c.conn.WriteToUDP(buff, c.reqSrv[c.robinN]); err != nil {
+	if c.nRequest < 5 {
+		log.Info("Send reTrans req to", c.reqSrv[c.robinN])
+	}
+	if _, err := c.conn.WriteToUDP(buff[:], c.reqSrv[c.robinN]); err != nil {
 		log.Error("Req reTrans", err)
 	}
 	c.robinN++

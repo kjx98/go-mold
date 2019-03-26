@@ -29,6 +29,7 @@ type Server struct {
 	nRecvs, nSent   int
 	nError, nResent int
 	nHeartBB        int
+	nSleep          int
 	msgs            []Message
 	buff            []byte
 }
@@ -129,16 +130,25 @@ func (c *Server) RequestLoop() {
 		// only retrans one UDP packet
 		// proce reTrans
 		var buff [maxUDPsize]byte
+		firstS := int(head.SeqNo)
+		lastS := firstS + int(head.MessageCnt)
+		log.Infof("Resend packets Seq: %d to: %d", firstS, lastS)
 		sHead := head
-		msgCnt, bLen := Marshal(buff[headSize:], c.msgs[int(head.SeqNo):])
-		sHead.MessageCnt = uint16(msgCnt)
-		if err := EncodeHead(buff[:headSize], &sHead); err != nil {
-			log.Error("EncodeHead for proccess reTrans", err)
-			continue
-		}
-		c.nResent++
-		if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], remoteAddr); err != nil {
-			log.Error("Req reTrans", err)
+		for i := 0; i < 5; i++ {
+			msgCnt, bLen := Marshal(buff[headSize:], c.msgs[firstS:lastS])
+			sHead.MessageCnt = uint16(msgCnt)
+			if err := EncodeHead(buff[:headSize], &sHead); err != nil {
+				log.Error("EncodeHead for proccess reTrans", err)
+				continue
+			}
+			c.nResent++
+			if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], remoteAddr); err != nil {
+				log.Error("Req reTrans", err)
+			}
+			firstS += msgCnt
+			if firstS >= lastS {
+				break
+			}
 		}
 	}
 }
@@ -204,6 +214,7 @@ func (c *Server) ServerLoop() {
 		dur := time.Now().Sub(st)
 		// sleep to 1 ms
 		if dur < time.Microsecond*900 {
+			c.nSleep++
 			time.Sleep(time.Millisecond - dur)
 		}
 	}
@@ -214,6 +225,6 @@ func (c *Server) SeqNo() int {
 }
 
 func (c *Server) DumpStats() {
-	log.Infof("Total Sent: %d/%d/%d, Recv: %d, errors: %d, reSent: %d", c.nSent,
-		c.nHeartBB, c.seqNo, c.nRecvs, c.nError, c.nResent)
+	log.Infof("Total Sent: %d/%d/%d, sleep: %d, Recv: %d, errors: %d, reSent: %d",
+		c.nSent, c.nHeartBB, c.seqNo, c.nSleep, c.nRecvs, c.nError, c.nResent)
 }
