@@ -8,7 +8,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kjx98/go-ats"
 	MoldUDP "github.com/kjx98/go-mold"
+	"github.com/kjx98/golib/julian"
 	logging "github.com/op/go-logging"
 )
 
@@ -60,6 +62,15 @@ func main() {
 	cc.PPms = ppms
 	// fill Messages
 	msgs := []MoldUDP.Message{}
+	enDate := julian.FromUint32(20180101)
+	if eur, err := ats.LoadTickFX("EURUSD", 0, enDate, 0); err == nil {
+		log.Infof("Load %d EURUSD ticks", len(eur))
+		for i := 0; i < len(eur); i++ {
+			msg := MoldUDP.Message{}
+			msg.Data = ats.TickFX2Bytes(eur[i : i+1])
+			msgs = append(msgs, msg)
+		}
+	}
 	cc.FeedMessages(msgs)
 	st := time.Now()
 	go cc.RequestLoop()

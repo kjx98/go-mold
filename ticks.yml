@@ -1,0 +1,35 @@
+AUDUSD:
+    start: 20030803
+
+EURGBP:
+    start: 20030803
+
+EURJPY:
+    start: 20030803
+
+EURUSD:
+    start: 20030504
+
+GBPJPY:
+    start: 20030803
+
+GBPUSD:
+    start: 20030504
+
+NZDUSD:
+    start: 20030803
+
+USDCHF:
+    start: 20030504
+
+USDJPY:
+    start: 20030504
+
+USDCAD:
+    start: 20030803
+
+XAUUSD:
+    start: 20030504
+
+XAGUSD:
+    start: 20030504
