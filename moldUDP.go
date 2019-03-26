@@ -2,13 +2,11 @@ package MoldUDP
 
 import (
 	//"bytes"
-	"encoding/binary"
 	"errors"
 	"github.com/op/go-logging"
 	"os"
 )
 
-var coder = binary.BigEndian
 var log = logging.MustGetLogger("go-mold")
 
 const (

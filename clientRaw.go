@@ -3,7 +3,6 @@
 package MoldUDP
 
 import (
-	"io"
 	"net"
 	"strings"
 	"syscall"
@@ -35,10 +34,14 @@ type Client struct {
 	buff                     []byte
 }
 
+// Option	options for Client connection
+//	Srvs	request servers, host[:port]
+//	IfName	if nor blank, if interface for Multicast
+//	NextSeq	next sequence number for listen packet
 type Option struct {
 	Srvs    []string
 	IfName  string
-	nextSeq uint64
+	NextSeq uint64
 }
 
 func (c *Client) Close() error {
@@ -52,7 +55,11 @@ func (c *Client) Close() error {
 
 func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 	var err error
-	client := Client{fd: -1, seqNo: opt.nextSeq, port: port}
+	client := Client{fd: -1, seqNo: opt.NextSeq, port: port}
+	// sequence number is 1 based
+	if client.seqNo == 0 {
+		client.seqNo++
+	}
 	if maddr := net.ParseIP(udpAddr); maddr != nil {
 		if maddr.IsMulticast() {
 			copy(client.dst[:], maddr.To4())
@@ -117,6 +124,9 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 	return &client, nil
 }
 
+// Read			Get []Message in order
+//	[]Message	messages received in order
+//	return   	nil,nil   for end of session or finished
 func (c *Client) Read() ([]Message, error) {
 	for c.Running {
 		n, remoteAddr, err := syscall.Recvfrom(c.fd, c.buff, 0)
@@ -156,7 +166,7 @@ func (c *Client) Read() ([]Message, error) {
 		}
 		switch head.MessageCnt {
 		case 0xffff:
-			return nil, io.EOF
+			return nil, nil
 		case 0:
 			// got heartbeat
 			continue
@@ -208,6 +218,10 @@ func (c *Client) request(seqNo uint64) {
 	if c.robinN >= len(c.reqSrv) {
 		c.robinN = 0
 	}
+}
+
+func (c *Client) SeqNo() uint64 {
+	return c.seqNo
 }
 
 func (c *Client) DumpStats() {

@@ -4,25 +4,20 @@ package MoldUDP
 
 import (
 	"net"
-	"strings"
 	"time"
-
-	"github.com/kjx98/golib/to"
 )
 
 const (
-	reqInterval = 5
-	maxMessages = 1024
+//reqInterval = 5
+//maxMessages = 1024
 )
 
-// Client struct for MoldUDP client
+// Server struct for MoldUDP server
 //	Running		bool
-//	LastRecv	int64	last time recv UDP
-type Client struct {
+type Server struct {
 	dst              net.UDPAddr
 	conn             *net.UDPConn
 	Running          bool
-	LastRecv         int64
 	seqNo            uint64
 	reqLast          int64
 	nRecvs, nRequest int
@@ -33,17 +28,7 @@ type Client struct {
 	buff             []byte
 }
 
-// Option	options for Client connection
-//	Srvs	request servers, host[:port]
-//	IfName	if nor blank, if interface for Multicast
-//	NextSeq	next sequence number for listen packet, 1 based
-type Option struct {
-	Srvs    []string
-	IfName  string
-	NextSeq uint64
-}
-
-func (c *Client) Close() error {
+func (c *Server) Close() error {
 	if c.conn == nil {
 		return errClosed
 	}
@@ -52,59 +37,52 @@ func (c *Client) Close() error {
 	return err
 }
 
-func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
+func NewServer(udpAddr string, port int, ifName string) (*Server, error) {
 	var err error
-	client := Client{seqNo: opt.NextSeq}
+	server := Server{seqNo: 1}
 	// sequence number is 1 based
-	if client.seqNo == 0 {
-		client.seqNo++
+	if server.seqNo == 0 {
+		server.seqNo++
 	}
-	client.dst.IP = net.ParseIP(udpAddr)
-	client.dst.Port = port
-	if !client.dst.IP.IsMulticast() {
-		log.Info(client.dst.IP, " is not multicast IP")
-		client.dst.IP = net.IPv4(224, 0, 0, 1)
+	server.dst.IP = net.ParseIP(udpAddr)
+	server.dst.Port = port
+	if !server.dst.IP.IsMulticast() {
+		log.Info(server.dst.IP, " is not multicast IP")
+		server.dst.IP = net.IPv4(224, 0, 0, 1)
 	}
 	var ifn *net.Interface
-	if opt.IfName != "" {
-		if ifn, err = net.InterfaceByName(opt.IfName); err != nil {
-			log.Errorf("Ifn(%s) error: %v\n", opt.IfName, err)
+	if ifName != "" {
+		if ifn, err = net.InterfaceByName(ifName); err != nil {
+			log.Errorf("Ifn(%s) error: %v\n", ifName, err)
 			ifn = nil
 		}
 	}
 	var fd int = -1
-	//client.conn, err = net.ListenMulticastUDP("udp", ifn, &client.dst)
+	//server.conn, err = net.ListenMulticastUDP("udp", ifn, &server.dst)
 	laddr := net.UDPAddr{IP: net.IPv4(0, 0, 0, 0), Port: port}
-	client.conn, err = net.ListenUDP("udp", &laddr)
+	server.conn, err = net.ListenUDP("udp", &laddr)
 	if err != nil {
 		return nil, err
 	}
-	if ff, err := client.conn.File(); err == nil {
+	if ff, err := server.conn.File(); err == nil {
 		fd = int(ff.Fd())
 	} else {
 		log.Error("Get UDPConn fd", err)
 	}
-	if err := JoinMulticast(fd, client.dst.IP, ifn); err != nil {
+	if err := JoinMulticast(fd, server.dst.IP, ifn); err != nil {
 		log.Info("add multicast group", err)
 	}
-	for _, daddr := range opt.Srvs {
-		ss := strings.Split(daddr, ":")
-		udpA := net.UDPAddr{IP: net.ParseIP(ss[0])}
-		if len(ss) == 1 {
-			udpA.Port = port
-		} else {
-			udpA.Port = to.Int(ss[1])
-		}
-		client.reqSrv = append(client.reqSrv, &udpA)
+	if err := SetMulticastInterface(fd, ifn); err != nil {
+		log.Info("set multicast interface", err)
 	}
-	client.buff = make([]byte, 2048)
-	return &client, nil
+	server.buff = make([]byte, 2048)
+	return &server, nil
 }
 
 // Read			Get []Message in order
 //	[]Message	messages received in order
 //	return   	nil,nil   for end of session or finished
-func (c *Client) Read() ([]Message, error) {
+func (c *Server) Read() ([]Message, error) {
 	for c.Running {
 		n, remoteAddr, err := c.conn.ReadFromUDP(c.buff)
 		if err != nil {
@@ -112,7 +90,7 @@ func (c *Client) Read() ([]Message, error) {
 			continue
 		}
 		c.nRecvs++
-		c.LastRecv = time.Now().Unix()
+		//c.LastRecv = time.Now().Unix()
 		var head Header
 		if err := DecodeHead(c.buff[:n], &head); err != nil {
 			log.Error("DecodeHead from", remoteAddr, " ", err)
@@ -166,7 +144,7 @@ func (c *Client) Read() ([]Message, error) {
 	return nil, nil
 }
 
-func (c *Client) request(seqNo uint64) {
+func (c *Server) request(seqNo uint64) {
 	if len(c.reqSrv) == 0 {
 		return
 	}
@@ -196,11 +174,11 @@ func (c *Client) request(seqNo uint64) {
 	}
 }
 
-func (c *Client) SeqNo() uint64 {
+func (c *Server) SeqNo() uint64 {
 	return c.seqNo
 }
 
-func (c *Client) DumpStats() {
+func (c *Server) DumpStats() {
 	log.Infof("Total Recv: %d, errors: %d, missed: %d, sent Request: %d",
 		c.nRecvs, c.nError, c.nMissed, c.nRequest)
 }
