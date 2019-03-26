@@ -142,6 +142,7 @@ func (c *Client) Read() ([]Message, error) {
 		switch head.MessageCnt {
 		case 0xffff:
 			// should check SeqNo
+			log.Info("Got endSession packet")
 			return nil, nil
 		case 0:
 			// got heartbeat
@@ -197,11 +198,11 @@ func (c *Client) request(seqNo uint64) {
 	}
 }
 
-func (c *Client) SeqNo() uint64 {
-	return c.seqNo
+func (c *Client) SeqNo() int {
+	return int(c.seqNo)
 }
 
 func (c *Client) DumpStats() {
-	log.Infof("Total Recv: %d, errors: %d, missed: %d, sent Request: %d",
-		c.nRecvs, c.nError, c.nMissed, c.nRequest)
+	log.Infof("Total Recv: %d/%d, errors: %d, missed: %d, Request: %d",
+		c.nRecvs, c.seqNo, c.nError, c.nMissed, c.nRequest)
 }

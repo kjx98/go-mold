@@ -21,12 +21,14 @@ type Server struct {
 	Session         string
 	dst             net.UDPAddr
 	conn            *net.UDPConn
+	PPms            int
 	Running         bool
 	endSession      bool
 	seqNo           uint64
 	endTime         int64
 	nRecvs, nSent   int
 	nError, nResent int
+	nHeartBB        int
 	msgs            []Message
 	buff            []byte
 }
@@ -48,9 +50,9 @@ func (c *Server) FeedMessages(feeds []Message) {
 	c.msgs = append(c.msgs, feeds...)
 }
 
-func NewServer(udpAddr string, port int, ifName string) (*Server, error) {
+func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, error) {
 	var err error
-	server := Server{seqNo: 1}
+	server := Server{seqNo: 1, PPms: PPms}
 	// sequence number is 1 based
 	server.dst.IP = net.ParseIP(udpAddr)
 	server.dst.Port = port
@@ -83,6 +85,11 @@ func NewServer(udpAddr string, port int, ifName string) (*Server, error) {
 	*/
 	if err := SetMulticastInterface(fd, ifn); err != nil {
 		log.Info("set multicast interface", err)
+	}
+	if bLoop {
+		if err := SetMulticastLoop(fd, true); err != nil {
+			log.Info("set multicast loopback", err)
+		}
 	}
 	server.buff = make([]byte, 2048)
 	server.Running = true
@@ -126,14 +133,13 @@ func (c *Server) RequestLoop() {
 		msgCnt, bLen := Marshal(buff[headSize:], c.msgs[int(head.SeqNo):])
 		sHead.MessageCnt = uint16(msgCnt)
 		if err := EncodeHead(buff[:headSize], &sHead); err != nil {
-			log.Error("EncodeHead for process reTrans", err)
+			log.Error("EncodeHead for proccess reTrans", err)
 			continue
 		}
 		c.nResent++
 		if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], remoteAddr); err != nil {
 			log.Error("Req reTrans", err)
 		}
-
 	}
 }
 
@@ -141,8 +147,20 @@ func (c *Server) RequestLoop() {
 func (c *Server) ServerLoop() {
 	var buff [maxUDPsize]byte
 	head := Header{Session: c.Session}
+	waits := int64(5) // wait for 5 seconds end of session
 	lastSend := time.Now()
 	hbInterval := time.Second * heartBeatInt
+	mcastBuff := func(bLen int) {
+		if err := EncodeHead(buff[:headSize], &head); err != nil {
+			log.Error("EncodeHead for proccess mcast", err)
+		} else {
+			if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], &c.dst); err != nil {
+				log.Error("mcast send", err)
+			}
+			lastSend = time.Now()
+			c.nSent++
+		}
+	}
 	for c.Running {
 		st := time.Now()
 		seqNo := int(c.seqNo)
@@ -151,19 +169,25 @@ func (c *Server) ServerLoop() {
 			if st.Sub(lastSend) >= hbInterval {
 				head.SeqNo = c.seqNo
 				head.MessageCnt = 0
-				if err := EncodeHead(buff[:headSize], &head); err != nil {
-					log.Error("EncodeHead for process reTrans", err)
-				} else {
-					if _, err := c.conn.WriteToUDP(buff[:headSize], &c.dst); err != nil {
-						log.Error("Req reTrans", err)
-					}
-					c.nSent++
+				c.nHeartBB++
+				mcastBuff(0)
+			}
+			if c.endTime != 0 {
+				if c.endTime+waits < time.Now().Unix() {
+					c.Running = false
+					break
 				}
+			} else if c.endSession {
+				c.endTime = time.Now().Unix()
+				// send End of Session packet
+				head.SeqNo = c.seqNo
+				head.MessageCnt = 0xffff
+				mcastBuff(0)
 			}
 			runtime.Gosched()
 			continue
 		}
-		for i := 0; i < PPms; i++ {
+		for i := 0; i < c.PPms; i++ {
 			if seqNo >= len(c.msgs) {
 				break
 			}
@@ -173,14 +197,7 @@ func (c *Server) ServerLoop() {
 			}
 			head.SeqNo = uint64(seqNo)
 			head.MessageCnt = uint16(msgCnt)
-			if err := EncodeHead(buff[:headSize], &head); err != nil {
-				log.Error("EncodeHead for process multicast", err)
-				break
-			}
-			if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], &c.dst); err != nil {
-				log.Error("Req reTrans", err)
-			}
-			c.nSent++
+			mcastBuff(bLen)
 			seqNo += msgCnt
 		}
 		dur := time.Now().Sub(st)
@@ -191,11 +208,11 @@ func (c *Server) ServerLoop() {
 	}
 }
 
-func (c *Server) SeqNo() uint64 {
-	return c.seqNo
+func (c *Server) SeqNo() int {
+	return int(c.seqNo)
 }
 
 func (c *Server) DumpStats() {
-	log.Infof("Total Sent: %d, Recv: %d, errors: %d, reSent: %d", c.nSent,
-		c.nRecvs, c.nError, c.nResent)
+	log.Infof("Total Sent: %d/%d/%d, Recv: %d, errors: %d, reSent: %d", c.nSent,
+		c.nHeartBB, c.seqNo, c.nRecvs, c.nError, c.nResent)
 }

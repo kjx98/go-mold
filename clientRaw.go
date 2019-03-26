@@ -221,8 +221,8 @@ func (c *Client) request(seqNo uint64) {
 	}
 }
 
-func (c *Client) SeqNo() uint64 {
-	return c.seqNo
+func (c *Client) SeqNo() int {
+	return int(c.seqNo)
 }
 
 func (c *Client) DumpStats() {

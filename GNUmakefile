@@ -19,13 +19,18 @@ MAKEFILE=GNUmakefile
 
 # We Use Compact Memory Model
 
-all: link bin/client
+all: link bin/client bin/server
 	@[ -d bin ] || exit
 
 bin/client:	cmd/client/main.go
 	@[ -d bin ] || mkdir bin
 	@go build -o $@ $^
 	@strip $@ || echo "client OK"
+
+bin/server:	cmd/server/main.go
+	@[ -d bin ] || mkdir bin
+	@go build -o $@ $^
+	@strip $@ || echo "server OK"
 
 link:
 	@[ -d build/src ] || (mkdir -p build/src/github.com/kjx98 \

@@ -8,6 +8,9 @@ import (
 
 func getIfAddr(ifn *net.Interface) (net.IP, error) {
 	ret := net.IPv4zero
+	if ifn == nil {
+		return ret, nil
+	}
 	if addrs, err := ifn.Addrs(); err != nil {
 		log.Info("Get if Addr", err)
 		return ret, err
@@ -41,6 +44,9 @@ func JoinMulticast(fd int, maddr net.IP, ifn *net.Interface) error {
 func SetMulticastInterface(fd int, ifn *net.Interface) error {
 	var sVal [4]byte
 	//var sVal string
+	if ifn == nil {
+		return nil
+	}
 	if ifAddr, err := getIfAddr(ifn); err != nil {
 		return err
 	} else {
@@ -69,6 +75,10 @@ func ExitMulticast(fd int, maddr net.IP) {
 func SetMulticastTTL(fd, ttl int) error {
 	return syscall.SetsockoptInt(fd, syscall.IPPROTO_IP,
 		syscall.IP_MULTICAST_TTL, ttl)
+}
+
+func SetPortReuse(fd int) {
+	syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 }
 
 func SetMulticastLoop(fd int, bLoop bool) error {

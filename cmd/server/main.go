@@ -12,25 +12,27 @@ import (
 	logging "github.com/op/go-logging"
 )
 
-var log = logging.MustGetLogger("mold-client")
-
-var opt MoldUDP.Option
+var log = logging.MustGetLogger("mold-server")
 
 func main() {
-	var maddr string
+	var maddr, ifName string
 	var port int
+	var ppms int
+	var bLoop bool
 	flag.StringVar(&maddr, "m", "224.0.0.1", "Multicast IPv4 to listen")
-	flag.StringVar(&opt.IfName, "i", "", "Interface name for multicast")
+	flag.StringVar(&ifName, "i", "", "Interface name for multicast")
+	flag.BoolVar(&bLoop, "l", false, "multicast loopback")
 	flag.IntVar(&port, "p", 5858, "UDP port to listen")
+	flag.IntVar(&ppms, "s", 500, "PPms packets per ms")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: client [options]\n")
+		fmt.Fprintf(os.Stderr, "Usage: server [options]\n")
 		flag.PrintDefaults()
 		os.Exit(2)
 	}
 	flag.Parse()
-	cc, err := MoldUDP.NewClient(maddr, port, &opt)
+	cc, err := MoldUDP.NewServer(maddr, port, ifName, bLoop)
 	if err != nil {
-		log.Error("NewClient", err)
+		log.Error("NewServer", err)
 		os.Exit(1)
 	}
 	defer cc.Close()
@@ -54,39 +56,23 @@ func main() {
 		}
 	}()
 
-	//cc.Running = true
-	go func() {
-		for cc.Running {
-			mess, err := cc.Read()
-			if err != nil {
-				log.Error("Client Read", err)
-				continue
-			}
-			if mess == nil {
-				break
-			}
-			log.Errorf("Got %d messages", len(mess))
-		}
-		// should we stop?
-		cc.Running = false
-	}()
-	waits := int64(10)
-	tick := time.NewTicker(time.Second)
-	if cc.LastRecv == 0 {
-		cc.LastRecv = time.Now().Unix()
-	}
+	cc.Session = time.Now().Format("20060102")
+	cc.PPms = ppms
+	// fill Messages
+	msgs := []MoldUDP.Message{}
+	cc.FeedMessages(msgs)
+	st := time.Now()
+	go cc.RequestLoop()
+	go cc.ServerLoop()
 	for cc.Running {
-		select {
-		case <-tick.C:
-			tt := time.Now().Unix()
-			if cc.LastRecv+waits < tt {
-				cc.Running = false
-				log.Errorf("No UDP recv for %d seconds", waits)
-			}
+		time.Sleep(time.Second)
+		if cc.SeqNo() >= len(msgs) {
+			cc.EndSession()
 		}
 	}
+	du := time.Now().Sub(st)
 	cc.DumpStats()
-	log.Info("exit client")
+	log.Infof("exit server, running %.3f seconds", du.Seconds())
 	os.Exit(0)
 }
 
