@@ -4,28 +4,31 @@ package MoldUDP
 
 import (
 	"net"
+	"runtime"
 	"time"
 )
 
 const (
-//reqInterval = 5
-//maxMessages = 1024
+	maxUDPsize   = 1472
+	heartBeatInt = 2
+	PPms         = 100 // packets per ms
 )
 
 // Server struct for MoldUDP server
 //	Running		bool
+//	Session		session for all messages
 type Server struct {
-	dst              net.UDPAddr
-	conn             *net.UDPConn
-	Running          bool
-	seqNo            uint64
-	reqLast          int64
-	nRecvs, nRequest int
-	nError, nMissed  int
-	robinN           int
-	reqSrv           []*net.UDPAddr
-	session          string
-	buff             []byte
+	Session         string
+	dst             net.UDPAddr
+	conn            *net.UDPConn
+	Running         bool
+	endSession      bool
+	seqNo           uint64
+	endTime         int64
+	nRecvs, nSent   int
+	nError, nResent int
+	msgs            []Message
+	buff            []byte
 }
 
 func (c *Server) Close() error {
@@ -37,13 +40,18 @@ func (c *Server) Close() error {
 	return err
 }
 
+func (c *Server) EndSession() {
+	c.endSession = true
+}
+
+func (c *Server) FeedMessages(feeds []Message) {
+	c.msgs = append(c.msgs, feeds...)
+}
+
 func NewServer(udpAddr string, port int, ifName string) (*Server, error) {
 	var err error
 	server := Server{seqNo: 1}
 	// sequence number is 1 based
-	if server.seqNo == 0 {
-		server.seqNo++
-	}
 	server.dst.IP = net.ParseIP(udpAddr)
 	server.dst.Port = port
 	if !server.dst.IP.IsMulticast() {
@@ -58,7 +66,6 @@ func NewServer(udpAddr string, port int, ifName string) (*Server, error) {
 		}
 	}
 	var fd int = -1
-	//server.conn, err = net.ListenMulticastUDP("udp", ifn, &server.dst)
 	laddr := net.UDPAddr{IP: net.IPv4(0, 0, 0, 0), Port: port}
 	server.conn, err = net.ListenUDP("udp", &laddr)
 	if err != nil {
@@ -69,20 +76,21 @@ func NewServer(udpAddr string, port int, ifName string) (*Server, error) {
 	} else {
 		log.Error("Get UDPConn fd", err)
 	}
-	if err := JoinMulticast(fd, server.dst.IP, ifn); err != nil {
-		log.Info("add multicast group", err)
-	}
+	/*
+		if err := JoinMulticast(fd, server.dst.IP, ifn); err != nil {
+			log.Info("add multicast group", err)
+		}
+	*/
 	if err := SetMulticastInterface(fd, ifn); err != nil {
 		log.Info("set multicast interface", err)
 	}
 	server.buff = make([]byte, 2048)
+	server.Running = true
 	return &server, nil
 }
 
-// Read			Get []Message in order
-//	[]Message	messages received in order
-//	return   	nil,nil   for end of session or finished
-func (c *Server) Read() ([]Message, error) {
+// RequestLoop		go routine process request retrans
+func (c *Server) RequestLoop() {
 	for c.Running {
 		n, remoteAddr, err := c.conn.ReadFromUDP(c.buff)
 		if err != nil {
@@ -91,86 +99,95 @@ func (c *Server) Read() ([]Message, error) {
 		}
 		c.nRecvs++
 		//c.LastRecv = time.Now().Unix()
+		if n != headSize {
+			c.nError++
+			continue
+		}
 		var head Header
 		if err := DecodeHead(c.buff[:n], &head); err != nil {
 			log.Error("DecodeHead from", remoteAddr, " ", err)
 			c.nError++
 			continue
 		}
-		if nMsg := head.MessageCnt; nMsg != 0xffff && nMsg >= maxMessages {
-			log.Errorf("Invalid MessageCnt(%d) from %s", nMsg, remoteAddr)
+		if head.SeqNo >= c.seqNo {
+			log.Errorf("Invalid seqNo %d, server seqNo: %d", head.SeqNo, c.seqNo)
 			c.nError++
 			continue
 		}
-		if len(c.reqSrv) == 0 {
-			c.reqSrv = append(c.reqSrv, remoteAddr)
-		}
-		if c.session == "" {
-			c.session = head.Session
-		} else if c.session != head.Session {
-			log.Errorf("Session dismatch %s got %s", c.session, head.Session)
+		if nMsg := head.MessageCnt; nMsg == 0xffff || nMsg == 0 {
+			log.Errorf("Seems msg from server MessageCnt(%d) from %s", nMsg, remoteAddr)
 			c.nError++
 			continue
 		}
-		if head.SeqNo != c.seqNo {
-			// should request for retransmit
-			c.request(head.SeqNo)
-		}
-		switch head.MessageCnt {
-		case 0xffff:
-			// should check SeqNo
-			return nil, nil
-		case 0:
-			// got heartbeat
+		// only retrans one UDP packet
+		// proce reTrans
+		var buff [maxUDPsize]byte
+		sHead := head
+		msgCnt, bLen := Marshal(buff[headSize:], c.msgs[int(head.SeqNo):])
+		sHead.MessageCnt = uint16(msgCnt)
+		if err := EncodeHead(buff[:headSize], &sHead); err != nil {
+			log.Error("EncodeHead for process reTrans", err)
 			continue
 		}
-		if head.SeqNo != c.seqNo {
-			// cache or not
-			c.nMissed++
-			continue
+		c.nResent++
+		if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], remoteAddr); err != nil {
+			log.Error("Req reTrans", err)
 		}
-		if headSize == n {
-			c.nError++
-			return nil, errMessageCnt
-		}
-		ret, err := Unmarshal(c.buff[headSize:n])
-		if err != nil {
-			c.nError++
-			return nil, err
-		}
-		c.seqNo += uint64(len(ret))
-		return ret, nil
+
 	}
-	return nil, nil
 }
 
-func (c *Server) request(seqNo uint64) {
-	if len(c.reqSrv) == 0 {
-		return
-	}
-	tt := time.Now().Unix()
-	if c.reqLast+reqInterval > tt {
-		return
-	}
-	c.reqLast = tt
-	cnt := seqNo - c.seqNo
-	if cnt > 60000 {
-		cnt = 60000
-	}
-	head := Header{Session: c.session, SeqNo: c.seqNo}
-	head.MessageCnt = uint16(cnt)
-	buff := make([]byte, headSize)
-	if err := EncodeHead(buff, &head); err != nil {
-		log.Error("EncodeHead for Req reTrans", err)
-		return
-	}
-	c.nRequest++
-	if _, err := c.conn.WriteToUDP(buff, c.reqSrv[c.robinN]); err != nil {
-		log.Error("Req reTrans", err)
-	}
-	c.robinN++
-	if c.robinN >= len(c.reqSrv) {
-		c.robinN = 0
+// ServerLoop	go routine multicast UDP and heartbeat
+func (c *Server) ServerLoop() {
+	var buff [maxUDPsize]byte
+	head := Header{Session: c.Session}
+	lastSend := time.Now()
+	hbInterval := time.Second * heartBeatInt
+	for c.Running {
+		st := time.Now()
+		seqNo := int(c.seqNo)
+		if seqNo >= len(c.msgs) {
+			// check for heartbeat sent
+			if st.Sub(lastSend) >= hbInterval {
+				head.SeqNo = c.seqNo
+				head.MessageCnt = 0
+				if err := EncodeHead(buff[:headSize], &head); err != nil {
+					log.Error("EncodeHead for process reTrans", err)
+				} else {
+					if _, err := c.conn.WriteToUDP(buff[:headSize], &c.dst); err != nil {
+						log.Error("Req reTrans", err)
+					}
+					c.nSent++
+				}
+			}
+			runtime.Gosched()
+			continue
+		}
+		for i := 0; i < PPms; i++ {
+			if seqNo >= len(c.msgs) {
+				break
+			}
+			msgCnt, bLen := Marshal(buff[headSize:], c.msgs[seqNo:])
+			if msgCnt == 0 {
+				break
+			}
+			head.SeqNo = uint64(seqNo)
+			head.MessageCnt = uint16(msgCnt)
+			if err := EncodeHead(buff[:headSize], &head); err != nil {
+				log.Error("EncodeHead for process multicast", err)
+				break
+			}
+			if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], &c.dst); err != nil {
+				log.Error("Req reTrans", err)
+			}
+			c.nSent++
+			seqNo += msgCnt
+		}
+		dur := time.Now().Sub(st)
+		// sleep to 1 ms
+		if dur < time.Microsecond*900 {
+			time.Sleep(time.Millisecond - dur)
+		}
 	}
 }
 
@@ -179,6 +196,6 @@ func (c *Server) SeqNo() uint64 {
 }
 
 func (c *Server) DumpStats() {
-	log.Infof("Total Recv: %d, errors: %d, missed: %d, sent Request: %d",
-		c.nRecvs, c.nError, c.nMissed, c.nRequest)
+	log.Infof("Total Sent: %d, Recv: %d, errors: %d, reSent: %d", c.nSent,
+		c.nRecvs, c.nError, c.nResent)
 }

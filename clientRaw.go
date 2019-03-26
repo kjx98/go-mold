@@ -121,6 +121,7 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 		}
 	}
 	client.buff = make([]byte, 2048)
+	client.Running = true
 	return &client, nil
 }
 

@@ -3,10 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/kjx98/go-mold"
-	"github.com/op/go-logging"
 	"os"
 	"time"
+
+	MoldUDP "github.com/kjx98/go-mold"
+	logging "github.com/op/go-logging"
 )
 
 var log = logging.MustGetLogger("mold-client")
@@ -30,7 +31,7 @@ func main() {
 		log.Error("NewClient", err)
 		os.Exit(1)
 	}
-	cc.Running = true
+	//cc.Running = true
 	waits := int64(10)
 	tick := time.NewTicker(time.Second)
 	go func() {
