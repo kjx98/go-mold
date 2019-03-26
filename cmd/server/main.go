@@ -20,12 +20,14 @@ func main() {
 	var maddr, ifName string
 	var port int
 	var ppms int
+	var tickCnt int
 	var bLoop bool
 	flag.StringVar(&maddr, "m", "224.0.0.1", "Multicast IPv4 to listen")
 	flag.StringVar(&ifName, "i", "", "Interface name for multicast")
 	flag.BoolVar(&bLoop, "l", false, "multicast loopback")
 	flag.IntVar(&port, "p", 5858, "UDP port to listen")
 	flag.IntVar(&ppms, "s", 500, "PPms packets per ms")
+	flag.IntVar(&tickCnt, "c", 40000000, "max tick count load")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: server [options]\n")
 		flag.PrintDefaults()
@@ -63,9 +65,10 @@ func main() {
 	// fill Messages
 	msgs := []MoldUDP.Message{}
 	enDate := julian.FromUint32(20180101)
-	if eur, err := ats.LoadTickFX("EURUSD", 0, enDate, 50000000); err == nil {
-		log.Infof("Load %d EURUSD ticks", len(eur))
-		for i := 0; i < len(eur); i++ {
+	if eur, err := ats.LoadTickFX("EURUSD", 0, enDate, tickCnt); err == nil {
+		cnt := len(eur)
+		log.Infof("Load %d EURUSD ticks, last TickTime: %v", cnt, eur[cnt-1].Time)
+		for i := 0; i < cnt; i++ {
 			msg := MoldUDP.Message{}
 			msg.Data = ats.TickFX2Bytes(eur[i : i+1])
 			msgs = append(msgs, msg)
