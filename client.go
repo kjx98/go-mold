@@ -107,7 +107,7 @@ func (c *Client) request(buff []byte) {
 		log.Info("Send reTrans seq:", c.seqNo, " req to", c.reqSrv[c.robinN])
 	}
 	if _, err := c.conn.WriteToUDP(buff[:], c.reqSrv[c.robinN]); err != nil {
-		log.Error("Req reTrans", err)
+		log.Error("Req WriteToUDP", err)
 	}
 	c.robinN++
 	if c.robinN >= len(c.reqSrv) {

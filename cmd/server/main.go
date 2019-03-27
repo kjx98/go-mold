@@ -22,12 +22,14 @@ func main() {
 	var ppms int
 	var tickCnt int
 	var bLoop bool
+	var waits int
 	flag.StringVar(&maddr, "m", "239.192.168.1", "Multicast IPv4 to listen")
 	flag.StringVar(&ifName, "i", "", "Interface name for multicast")
 	flag.BoolVar(&bLoop, "l", false, "multicast loopback")
 	flag.IntVar(&port, "p", 5858, "UDP port to listen")
 	flag.IntVar(&ppms, "s", 100, "PPms packets per ms")
 	flag.IntVar(&tickCnt, "c", 40000000, "max tick count load")
+	flag.IntVar(&waits, "w", 5, "seconds wait after endSession, default 5s")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: server [options]\n")
 		flag.PrintDefaults()
@@ -87,7 +89,7 @@ func main() {
 	for cc.Running {
 		time.Sleep(time.Second)
 		if cc.SeqNo() >= len(msgs) {
-			cc.EndSession()
+			cc.EndSession(waits)
 		} else if time.Now().Unix() >= nextDisp {
 			cc.DumpStats()
 			nextDisp = time.Now().Unix() + 30

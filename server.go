@@ -26,6 +26,7 @@ type Server struct {
 	endSession      bool
 	seqNo           uint64
 	endTime         int64
+	waits           int // wait for 5 seconds end of session
 	nRecvs, nSent   int
 	nError, nResent int
 	nHeartBB        int
@@ -43,8 +44,11 @@ func (c *Server) Close() error {
 	return err
 }
 
-func (c *Server) EndSession() {
+func (c *Server) EndSession(nWaits int) {
 	c.endSession = true
+	if nWaits > c.waits {
+		c.waits = nWaits
+	}
 }
 
 func (c *Server) FeedMessages(feeds []Message) {
@@ -53,7 +57,7 @@ func (c *Server) FeedMessages(feeds []Message) {
 
 func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, error) {
 	var err error
-	server := Server{seqNo: 1, PPms: PPms}
+	server := Server{seqNo: 1, waits: 5, PPms: PPms}
 	// sequence number is 1 based
 	server.dst.IP = net.ParseIP(udpAddr)
 	server.dst.Port = port
@@ -107,15 +111,14 @@ func (c *Server) RequestLoop() {
 
 		firstS := int(seqNo) - 1
 		lastS := firstS + int(cnt)
-		rAddr := remoteA.IP.String()
 		/*
-
-				if savedSeq, ok := seqNoHost[rAddr]; ok {
-					log.Info(rAddr, "already in process retrans for", savedSeq)
-					return
-				}
-				seqNoHost[rAddr] = seqNo
-			defer delete(seqNoHost, rAddr)
+			rAddr := remoteA.IP.String()
+					if savedSeq, ok := seqNoHost[rAddr]; ok {
+						log.Info(rAddr, "already in process retrans for", savedSeq)
+						return
+					}
+					seqNoHost[rAddr] = seqNo
+				defer delete(seqNoHost, rAddr)
 		*/
 
 		log.Infof("Resend packets Seq: %d to: %d", firstS, lastS)
@@ -129,7 +132,7 @@ func (c *Server) RequestLoop() {
 			}
 			c.nResent++
 			if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], &remoteA); err != nil {
-				log.Error("Req reTrans to", rAddr, err)
+				log.Error("Res WriteToUDP", remoteA, err)
 			}
 			firstS += msgCnt
 		}
@@ -153,7 +156,7 @@ func (c *Server) RequestLoop() {
 			continue
 		}
 		if head.SeqNo >= c.seqNo {
-			log.Errorf("Invalid seqNo %d, server seqNo: %d", head.SeqNo, c.seqNo)
+			log.Errorf("Invalid seq %d, server seqNo: %d", head.SeqNo, c.seqNo)
 			c.nError++
 			continue
 		}
@@ -170,7 +173,6 @@ func (c *Server) RequestLoop() {
 func (c *Server) ServerLoop() {
 	var buff [maxUDPsize]byte
 	head := Header{Session: c.Session}
-	waits := int64(5) // wait for 5 seconds end of session
 	lastSend := time.Now()
 	hbInterval := time.Second * heartBeatInt
 	mcastBuff := func(bLen int) {
@@ -196,12 +198,13 @@ func (c *Server) ServerLoop() {
 				mcastBuff(0)
 			}
 			if c.endTime != 0 {
-				if c.endTime+waits < time.Now().Unix() {
+				if c.endTime < time.Now().Unix() {
 					c.Running = false
 					break
 				}
 			} else if c.endSession {
 				c.endTime = time.Now().Unix()
+				c.endTime += int64(c.waits)
 				// send End of Session packet
 				head.SeqNo = c.seqNo
 				head.MessageCnt = 0xffff

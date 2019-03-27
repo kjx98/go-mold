@@ -5,6 +5,7 @@ github.com/kjx98/avl v0.1.2/go.mod h1:As8Xi6BUP0JMJLfFGsXAF2ZQJfe0QqwJjulARUNyyS
 github.com/kjx98/go-ats v0.0.0-20190327074133-82bb395a8b8d/go.mod h1:oCBs3V/D7CzP804UzPAgH4obFlBL70zUgHOSnYnij8Q=
 github.com/kjx98/go-ats v0.1.1 h1:dbUcqXPGzXbxhuptDeGd4xIRhGUAe+aJyopnR5LOHas=
 github.com/kjx98/go-ats v0.1.1/go.mod h1:oCBs3V/D7CzP804UzPAgH4obFlBL70zUgHOSnYnij8Q=
+github.com/kjx98/go-ats v0.1.2 h1:udgHVR3lQv60FxBu3r/edZ2GW+QPgPTfDobSwPDi0Ak=
 github.com/kjx98/go-ats v0.1.2/go.mod h1:oCBs3V/D7CzP804UzPAgH4obFlBL70zUgHOSnYnij8Q=
 github.com/kjx98/go-mold v0.0.0-20190327102532-5bdf2955272b h1:K866t2xIF79Y6gJnxNMzqWec6kC2xR+31J/B4vja8Ag=
 github.com/kjx98/go-mold v0.0.0-20190327102532-5bdf2955272b/go.mod h1:+3X3aVpSx2nNjeyQjPv4ZlUv8NRrccqfCuDAR+Klcjo=

@@ -67,7 +67,7 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 			log.Infof("Try %s for MC group", adr)
 			if ifAddr := net.ParseIP(adr); ifAddr != nil {
 				copy(mreq.Interface[:], ifAddr.To4())
-				log.Info("Use ", adr, " for Multicast interface")
+				log.Info("Use", adr, "for Multicast interface")
 			}
 		}
 	}
@@ -136,7 +136,7 @@ func (c *Client) request(buff []byte) {
 		log.Info("Send reTrans seq:", c.seqNo, " req to", c.reqSrv[c.robinN])
 	}
 	if err := syscall.Sendto(c.fd, buff, 0, &c.reqSrv[c.robinN]); err != nil {
-		log.Error("Req reTrans", err)
+		log.Error("Req Sendto", err)
 	}
 	c.robinN++
 	if c.robinN >= len(c.reqSrv) {
