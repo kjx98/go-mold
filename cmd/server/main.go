@@ -40,6 +40,8 @@ func main() {
 		os.Exit(1)
 	}
 	defer cc.Close()
+	log.Infof("Start MoldUDP64 Multicast server, mc addr: %s:%d, PPms: %d",
+		maddr, port, ppms)
 	// catch  SIGTERM, SIGINT, SIGUP
 	sigC := make(chan os.Signal, 10)
 	signal.Notify(sigC)

@@ -130,7 +130,7 @@ func (c *Server) RequestLoop() {
 		// only retrans one UDP packet
 		// proce reTrans
 		var buff [maxUDPsize]byte
-		firstS := int(head.SeqNo)
+		firstS := int(head.SeqNo) - 1
 		lastS := firstS + int(head.MessageCnt)
 		log.Infof("Resend packets Seq: %d to: %d", firstS, lastS)
 		sHead := head
@@ -174,7 +174,7 @@ func (c *Server) ServerLoop() {
 	for c.Running {
 		st := time.Now()
 		seqNo := int(c.seqNo)
-		if seqNo >= len(c.msgs) {
+		if seqNo > len(c.msgs) {
 			// check for heartbeat sent
 			if st.Sub(lastSend) >= hbInterval {
 				head.SeqNo = c.seqNo
@@ -198,10 +198,10 @@ func (c *Server) ServerLoop() {
 			continue
 		}
 		for i := 0; i < c.PPms; i++ {
-			if seqNo >= len(c.msgs) {
+			if seqNo > len(c.msgs) {
 				break
 			}
-			msgCnt, bLen := Marshal(buff[headSize:], c.msgs[seqNo:])
+			msgCnt, bLen := Marshal(buff[headSize:], c.msgs[seqNo-1:])
 			if msgCnt == 0 {
 				break
 			}

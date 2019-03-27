@@ -21,8 +21,8 @@ func main() {
 	var maddr string
 	var port int
 	var waits int
-	var firstP []MoldUDP.Message
 	var firstTic, lastTic *ats.TickFX
+	var fTic, lTic ats.TickFX
 	flag.StringVar(&maddr, "m", "224.0.0.1", "Multicast IPv4 to listen")
 	flag.StringVar(&opt.IfName, "i", "", "Interface name for multicast")
 	flag.IntVar(&port, "p", 5858, "UDP port to listen")
@@ -70,13 +70,18 @@ func main() {
 			if mess == nil {
 				break
 			}
-			if firstP == nil {
+			if firstTic == nil {
 				log.Infof("Got first %d messages", len(mess))
-				firstP = mess
-				firstTic = ats.Bytes2TickFX(firstP[0].Data)
+				firstTic = ats.Bytes2TickFX(mess[0].Data)
+				if firstTic != nil {
+					fTic = *firstTic
+				}
 			}
 			if n := len(mess); n > 0 {
 				lastTic = ats.Bytes2TickFX(mess[n-1].Data)
+				if lastTic != nil {
+					lTic = *lastTic
+				}
 			}
 		}
 		// should we stop?
@@ -98,10 +103,8 @@ func main() {
 			}
 		}
 		if nextDisp == 0 {
-			if len(firstP) > 0 {
-				if firstTic != nil {
-					log.Info("First message:", firstTic)
-				}
+			if firstTic != nil {
+				log.Info("First message:", fTic)
 				nextDisp = tt + 30
 			}
 		} else if nextDisp < tt {
@@ -110,7 +113,7 @@ func main() {
 		}
 	}
 	if lastTic != nil {
-		log.Info("Last message:", lastTic)
+		log.Info("Last message:", lTic)
 	}
 	cc.DumpStats()
 	log.Info("exit client")
