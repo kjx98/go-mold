@@ -12,14 +12,12 @@
 
 # Version for distribution
 VER=1_0r1
-GOPATH=$(shell go env GOPATH):$(PWD)/build
 
-export GOPATH
 MAKEFILE=GNUmakefile
 
 # We Use Compact Memory Model
 
-all: link bin/client bin/server
+all: bin/client bin/server
 	@[ -d bin ] || exit
 
 bin/client:	cmd/client/main.go
@@ -32,13 +30,9 @@ bin/server:	cmd/server/main.go
 	@go build -o $@ $^
 	@strip $@ || echo "server OK"
 
-link:
-	@[ -d build/src ] || (mkdir -p build/src/github.com/kjx98 \
-		&& ln -s $(PWD) build/src/github.com/kjx98/go-mold)
-
 test:
 	@go test
-	@go test -tags norecover
+	@go test -tags rawSocket
 
 bench:
 	sudo cpupower frequency-set --governor performance

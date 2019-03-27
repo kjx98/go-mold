@@ -24,6 +24,7 @@ type Client struct {
 	Running          bool
 	LastRecv         int64
 	seqNo            uint64
+	seqMax           uint64
 	reqLast          int64
 	nRecvs, nRequest int
 	nError, nMissed  int
@@ -139,13 +140,17 @@ func (c *Client) Read() ([]Message, error) {
 		}
 		if head.SeqNo != c.seqNo {
 			// should request for retransmit
-			c.request(head.SeqNo)
+			seqNo := head.SeqNo + uint64(head.MessageCnt)
+			c.request(seqNo)
 		}
 		switch head.MessageCnt {
 		case 0xffff:
 			// should check SeqNo
 			log.Info("Got endSession packet")
-			return nil, nil
+			if c.seqNo >= c.seqMax {
+				return nil, nil
+			}
+			continue
 		case 0:
 			// got heartbeat
 			continue
@@ -174,12 +179,15 @@ func (c *Client) request(seqNo uint64) {
 	if len(c.reqSrv) == 0 {
 		return
 	}
+	if seqNo > c.seqMax {
+		c.seqMax = seqNo
+	}
 	tt := time.Now().Unix()
 	if c.reqLast+reqInterval > tt {
 		return
 	}
 	c.reqLast = tt
-	cnt := seqNo - c.seqNo
+	cnt := c.seqMax - c.seqNo
 	if cnt > 60000 {
 		cnt = 60000
 	}

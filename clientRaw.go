@@ -26,6 +26,7 @@ type Client struct {
 	Running                  bool
 	LastRecv                 int64
 	seqNo                    uint64
+	seqMax                   uint64
 	reqLast                  int64 // time for last retrans Request
 	nRecvs, nError, nRequest int
 	robinN                   int
@@ -163,7 +164,9 @@ func (c *Client) Read() ([]Message, error) {
 		}
 		if head.SeqNo != c.seqNo {
 			// should request for retransmit
-			c.request(head.SeqNo)
+			seqNo := head.SeqNo + uint64(head.MessageCnt)
+			c.request(seqNo)
+			//c.request(head.SeqNo)
 		}
 		switch head.MessageCnt {
 		case 0xffff:
@@ -194,6 +197,9 @@ func (c *Client) Read() ([]Message, error) {
 func (c *Client) request(seqNo uint64) {
 	if len(c.reqSrv) == 0 {
 		return
+	}
+	if seqNo > c.seqMax {
+		c.seqMax = seqNo
 	}
 	tt := time.Now().Unix()
 	if c.reqLast+reqInterval > tt {
