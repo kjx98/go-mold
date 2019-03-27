@@ -192,7 +192,7 @@ func (c *Client) request(seqNo uint64) {
 	}
 	c.nRequest++
 	if c.nRequest < 5 {
-		log.Info("Send reTrans req to", c.reqSrv[c.robinN])
+		log.Info("Send reTrans seq:", c.seqNo, " req to", c.reqSrv[c.robinN])
 	}
 	if _, err := c.conn.WriteToUDP(buff[:], c.reqSrv[c.robinN]); err != nil {
 		log.Error("Req reTrans", err)

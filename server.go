@@ -99,6 +99,36 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, er
 
 // RequestLoop		go routine process request retrans
 func (c *Server) RequestLoop() {
+	seqNoHost := map[string]uint64{}
+	doReq := func(seqNo uint64, cnt uint16, remoteA net.UDPAddr) {
+		// only retrans one UDP packet
+		// proce reTrans
+		var buff [maxUDPsize]byte
+		rAddr := remoteA.IP.String()
+		firstS := int(seqNo) - 1
+		lastS := firstS + int(cnt)
+		if savedSeq, ok := seqNoHost[rAddr]; ok {
+			log.Info(rAddr, "already in process retrans for", savedSeq)
+			return
+		}
+		seqNoHost[rAddr] = seqNo
+		defer delete(seqNoHost, rAddr)
+		log.Infof("Resend packets Seq: %d to: %d", firstS, lastS)
+		sHead := Header{Session: c.Session}
+		for firstS < lastS {
+			msgCnt, bLen := Marshal(buff[headSize:], c.msgs[firstS:lastS])
+			sHead.MessageCnt = uint16(msgCnt)
+			if err := EncodeHead(buff[:headSize], &sHead); err != nil {
+				log.Error("EncodeHead for proccess reTrans", err)
+				continue
+			}
+			c.nResent++
+			if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], &remoteA); err != nil {
+				log.Error("Req reTrans to", rAddr, err)
+			}
+			firstS += msgCnt
+		}
+	}
 	for c.Running {
 		n, remoteAddr, err := c.conn.ReadFromUDP(c.buff)
 		if err != nil {
@@ -127,29 +157,7 @@ func (c *Server) RequestLoop() {
 			c.nError++
 			continue
 		}
-		// only retrans one UDP packet
-		// proce reTrans
-		var buff [maxUDPsize]byte
-		firstS := int(head.SeqNo) - 1
-		lastS := firstS + int(head.MessageCnt)
-		log.Infof("Resend packets Seq: %d to: %d", firstS, lastS)
-		sHead := head
-		for i := 0; i < 5; i++ {
-			msgCnt, bLen := Marshal(buff[headSize:], c.msgs[firstS:lastS])
-			sHead.MessageCnt = uint16(msgCnt)
-			if err := EncodeHead(buff[:headSize], &sHead); err != nil {
-				log.Error("EncodeHead for proccess reTrans", err)
-				continue
-			}
-			c.nResent++
-			if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], remoteAddr); err != nil {
-				log.Error("Req reTrans", err)
-			}
-			firstS += msgCnt
-			if firstS >= lastS {
-				break
-			}
-		}
+		go doReq(head.SeqNo, head.MessageCnt, *remoteAddr)
 	}
 }
 
