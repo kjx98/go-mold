@@ -31,6 +31,8 @@ type Server struct {
 	nRecvs, nSent int
 	nError        int
 	nResent       int64
+	nGoes         int64
+	maxGoes       int
 	nHeartBB      int
 	nSleep        int
 	msgs          []Message
@@ -113,6 +115,7 @@ func (c *Server) RequestLoop() {
 
 		firstS := int(seqNo) - 1
 		lastS := firstS + int(cnt)
+		defer atomic.AddInt64(&c.nGoes, -1)
 		/*
 			rAddr := remoteA.IP.String()
 					if savedSeq, ok := seqNoHost[rAddr]; ok {
@@ -166,6 +169,10 @@ func (c *Server) RequestLoop() {
 			log.Errorf("Seems msg from server MessageCnt(%d) from %s", nMsg, remoteAddr)
 			c.nError++
 			continue
+		}
+		nGoes := int(atomic.AddInt64(&c.nGoes, 1))
+		if nGoes > c.maxGoes {
+			c.maxGoes = nGoes
 		}
 		go doReq(head.SeqNo, head.MessageCnt, *remoteAddr)
 	}
@@ -243,6 +250,8 @@ func (c *Server) SeqNo() int {
 }
 
 func (c *Server) DumpStats() {
-	log.Infof("Total Sent: %d/%d seqNo: %d, sleep: %d, Recv: %d, errors: %d, reSent: %d",
-		c.nSent, c.nHeartBB, c.seqNo, c.nSleep, c.nRecvs, c.nError, c.nResent)
+	log.Infof("Total Sent: %d HeartBeat: %d seqNo: %d, sleep: %d\n"+
+		"Recv: %d, errors: %d, reSent: %d, maxGoes: %d",
+		c.nSent, c.nHeartBB, c.seqNo, c.nSleep, c.nRecvs, c.nError,
+		c.nResent, c.maxGoes)
 }
