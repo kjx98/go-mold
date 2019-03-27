@@ -20,10 +20,13 @@ var opt MoldUDP.Option
 func main() {
 	var maddr string
 	var port int
-	var firstP, lastP []MoldUDP.Message
+	var waits int
+	var firstP []MoldUDP.Message
+	var firstTic, lastTic *ats.TickFX
 	flag.StringVar(&maddr, "m", "224.0.0.1", "Multicast IPv4 to listen")
 	flag.StringVar(&opt.IfName, "i", "", "Interface name for multicast")
 	flag.IntVar(&port, "p", 5858, "UDP port to listen")
+	flag.IntVar(&waits, "w", 0, "seconds wait for UDP packet, 0 unlimited")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: client [options]\n")
 		flag.PrintDefaults()
@@ -70,38 +73,44 @@ func main() {
 			if firstP == nil {
 				log.Infof("Got first %d messages", len(mess))
 				firstP = mess
+				firstTic = ats.Bytes2TickFX(firstP[0].Data)
 			}
-			lastP = mess
+			if n := len(mess); n > 0 {
+				lastTic = ats.Bytes2TickFX(mess[n-1].Data)
+			}
 		}
 		// should we stop?
 		cc.Running = false
 	}()
-	waits := int64(10)
 	tick := time.NewTicker(time.Second)
 	if cc.LastRecv == 0 {
 		cc.LastRecv = time.Now().Unix()
 	}
+	nextDisp := int64(0)
 	for cc.Running {
+		var tt int64
 		select {
 		case <-tick.C:
-			tt := time.Now().Unix()
-			if cc.LastRecv+waits < tt {
+			tt = time.Now().Unix()
+			if waits > 0 && cc.LastRecv+int64(waits) < tt {
 				cc.Running = false
 				log.Errorf("No UDP recv for %d seconds", waits)
 			}
 		}
-	}
-	if len(firstP) > 0 {
-		tic := ats.Bytes2TickFX(firstP[0].Data)
-		if tic != nil {
-			log.Info("First message:", tic)
+		if nextDisp == 0 {
+			if len(firstP) > 0 {
+				if firstTic != nil {
+					log.Info("First message:", firstTic)
+				}
+				nextDisp = tt + 30
+			}
+		} else if nextDisp < tt {
+			cc.DumpStats()
+			nextDisp = tt + 30
 		}
 	}
-	if cnt := len(lastP); cnt > 0 {
-		tic := ats.Bytes2TickFX(lastP[cnt-1].Data)
-		if tic != nil {
-			log.Info("Last message:", tic)
-		}
+	if lastTic != nil {
+		log.Info("Last message:", lastTic)
 	}
 	cc.DumpStats()
 	log.Info("exit client")

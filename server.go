@@ -225,6 +225,6 @@ func (c *Server) SeqNo() int {
 }
 
 func (c *Server) DumpStats() {
-	log.Infof("Total Sent: %d/%d/%d, sleep: %d, Recv: %d, errors: %d, reSent: %d",
+	log.Infof("Total Sent: %d/%d seqNo: %d, sleep: %d, Recv: %d, errors: %d, reSent: %d",
 		c.nSent, c.nHeartBB, c.seqNo, c.nSleep, c.nRecvs, c.nError, c.nResent)
 }

@@ -208,6 +208,6 @@ func (c *Client) SeqNo() int {
 }
 
 func (c *Client) DumpStats() {
-	log.Infof("Total Recv: %d/%d, errors: %d, missed: %d, Request: %d",
+	log.Infof("Total Recv: %d seqNo: %d, errors: %d, missed: %d, Request: %d",
 		c.nRecvs, c.seqNo, c.nError, c.nMissed, c.nRequest)
 }

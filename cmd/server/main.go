@@ -67,7 +67,8 @@ func main() {
 	enDate := julian.FromUint32(20180101)
 	if eur, err := ats.LoadTickFX("EURUSD", 0, enDate, tickCnt); err == nil {
 		cnt := len(eur)
-		log.Infof("Load %d EURUSD ticks, last TickTime: %v", cnt, eur[cnt-1].Time)
+		log.Infof("Load %d EURUSD ticks", cnt)
+		log.Infof("First tick %v, last tick: %v", eur[0].Time, eur[cnt-1].Time)
 		for i := 0; i < cnt; i++ {
 			msg := MoldUDP.Message{}
 			msg.Data = ats.TickFX2Bytes(&eur[i])
