@@ -23,7 +23,7 @@ func main() {
 	var waits int
 	var firstTic, lastTic *ats.TickFX
 	var fTic, lTic ats.TickFX
-	flag.StringVar(&maddr, "m", "224.0.0.1", "Multicast IPv4 to listen")
+	flag.StringVar(&maddr, "m", "239.192.168.1", "Multicast IPv4 to listen")
 	flag.StringVar(&opt.IfName, "i", "", "Interface name for multicast")
 	flag.IntVar(&port, "p", 5858, "UDP port to listen")
 	flag.IntVar(&waits, "w", 0, "seconds wait for UDP packet, 0 unlimited")

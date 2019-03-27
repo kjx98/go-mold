@@ -22,7 +22,7 @@ func main() {
 	var ppms int
 	var tickCnt int
 	var bLoop bool
-	flag.StringVar(&maddr, "m", "224.0.0.1", "Multicast IPv4 to listen")
+	flag.StringVar(&maddr, "m", "239.192.168.1", "Multicast IPv4 to listen")
 	flag.StringVar(&ifName, "i", "", "Interface name for multicast")
 	flag.BoolVar(&bLoop, "l", false, "multicast loopback")
 	flag.IntVar(&port, "p", 5858, "UDP port to listen")
