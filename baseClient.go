@@ -25,9 +25,16 @@ type ClientBase struct {
 	robinN           int
 	session          string
 	buff             []byte
+	head, tail       map[uint64]*messageCache
 }
 
-// Option	options for Client connection
+type messageCache struct {
+	seqNo   uint64
+	seqNext uint64
+	data    []Message
+}
+
+// Option	options for Client connectionmap[uint64]*messageCache
 //	Srvs	request servers, host[:port]
 //	IfName	if nor blank, if interface for Multicast
 //	NextSeq	next sequence number for listen packet, 1 based
@@ -43,6 +50,8 @@ func (c *ClientBase) initClientBase(opt *Option) *net.Interface {
 	if c.seqNo == 0 {
 		c.seqNo++
 	}
+	//c.head = map[uint64]*messageCache{}
+	//c.tail = map[uint64]*messageCache{}
 	var ifn *net.Interface
 	if opt.IfName != "" {
 		if ifn, err = net.InterfaceByName(opt.IfName); err != nil {
@@ -59,6 +68,41 @@ var (
 	errInvMessageCnt = errors.New("Invalid MessageCnt")
 	errSession       = errors.New("Session dismatch")
 )
+
+func (c *ClientBase) storeCache(buf []Message, seqNo uint64) {
+	// should deep copy buf
+	seqNext := seqNo + uint64(len(buf))
+	var newCC = messageCache{seqNo: seqNo, seqNext: seqNext, data: buf}
+	if cc, ok := c.head[seqNext]; ok {
+		// found tail to merge
+		delete(c.head, seqNext)
+		delete(c.tail, cc.seqNext)
+		newCC.data = append(newCC.data, cc.data...)
+		seqNext = cc.seqNext
+	}
+	if cc, ok := c.tail[seqNo]; ok {
+		// found head to merge
+		delete(c.tail, seqNo)
+		delete(c.head, cc.seqNo)
+		newCC.data = append(cc.data, newCC.data...)
+		seqNo = cc.seqNo
+	}
+	newCC.seqNo = seqNo
+	newCC.seqNext = seqNext
+	c.head[seqNo] = &newCC
+	c.tail[seqNext] = &newCC
+}
+
+func (c *ClientBase) popCache(seqNo uint64) []Message {
+	if cc, ok := c.head[seqNo]; ok {
+		// found
+		delete(c.tail, cc.seqNext)
+		ret := cc.data
+		delete(c.head, cc.seqNo)
+		return ret
+	}
+	return nil
+}
 
 func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 	c.nRecvs++
@@ -78,37 +122,50 @@ func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 		c.nError++
 		return nil, nil, errSession
 	}
-	if head.SeqNo != c.seqNo {
-		// should request for retransmit
-		seqNo := head.SeqNo + uint64(head.MessageCnt)
-		reqBuf := c.newReq(seqNo)
-		// cache or not for MessageCnt not 0, 0xffff
-		c.nMissed++
-		return nil, reqBuf, nil
+	var res []Message
+	if n > headSize {
+		if ret, err := Unmarshal(c.buff[headSize:n]); err != nil {
+			c.nError++
+			return nil, nil, err
+		} else {
+			res = ret
+		}
 	}
-	switch head.MessageCnt {
-	case 0xffff:
-		// should check SeqNo
+	if head.MessageCnt == 0xffff {
 		log.Info("Got endSession packet")
 		if c.seqNo >= c.seqMax {
 			c.Running = false
 		}
-		fallthrough
-	case 0:
-		// got heartbeat
+	}
+	if head.SeqNo != c.seqNo {
+		// should request for retransmit
+		seqNo := head.SeqNo // + uint64(head.MessageCnt)
+		reqBuf := c.newReq(seqNo)
+		// cache or not for MessageCnt not 0, 0xffff
+		if msgCnt := head.MessageCnt; msgCnt != 0 && msgCnt != 0xffff {
+			c.storeCache(res, head.SeqNo)
+		}
+		c.nMissed++
+		return nil, reqBuf, nil
+	}
+	switch head.MessageCnt {
+	case 0xffff, 0:
+		// endSession
+		// or heartbeat
 		return nil, nil, nil
+	default:
+		if headSize == n {
+			c.nError++
+			return nil, nil, errMessageCnt
+		}
 	}
-	if headSize == n {
-		c.nError++
-		return nil, nil, errMessageCnt
+	c.seqNo += uint64(len(res))
+	if bb := c.popCache(c.seqNo); bb != nil {
+		res = append(res, bb...)
+		c.seqNo += uint64(len(bb))
 	}
-	ret, err := Unmarshal(c.buff[headSize:n])
-	if err != nil {
-		c.nError++
-		return nil, nil, err
-	}
-	c.seqNo += uint64(len(ret))
-	return ret, nil, nil
+	// shall we check head cache to merge
+	return res, nil, nil
 }
 
 func (c *ClientBase) newReq(seqNo uint64) []byte {
