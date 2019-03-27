@@ -99,20 +99,25 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, er
 
 // RequestLoop		go routine process request retrans
 func (c *Server) RequestLoop() {
-	seqNoHost := map[string]uint64{}
+	//seqNoHost := map[string]uint64{}
 	doReq := func(seqNo uint64, cnt uint16, remoteA net.UDPAddr) {
 		// only retrans one UDP packet
 		// proce reTrans
 		var buff [maxUDPsize]byte
-		rAddr := remoteA.IP.String()
+
 		firstS := int(seqNo) - 1
 		lastS := firstS + int(cnt)
-		if savedSeq, ok := seqNoHost[rAddr]; ok {
-			log.Info(rAddr, "already in process retrans for", savedSeq)
-			return
-		}
-		seqNoHost[rAddr] = seqNo
-		defer delete(seqNoHost, rAddr)
+		rAddr := remoteA.IP.String()
+		/*
+
+				if savedSeq, ok := seqNoHost[rAddr]; ok {
+					log.Info(rAddr, "already in process retrans for", savedSeq)
+					return
+				}
+				seqNoHost[rAddr] = seqNo
+			defer delete(seqNoHost, rAddr)
+		*/
+
 		log.Infof("Resend packets Seq: %d to: %d", firstS, lastS)
 		sHead := Header{Session: c.Session}
 		for firstS < lastS {
