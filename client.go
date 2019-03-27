@@ -36,13 +36,13 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 	client.dst.IP = net.ParseIP(udpAddr)
 	client.dst.Port = port
 	if !client.dst.IP.IsMulticast() {
-		log.Info(client.dst.IP, " is not multicast IP")
+		log.Info(client.dst.IP, "is not multicast IP")
 		client.dst.IP = net.IPv4(224, 0, 0, 1)
 	}
 	var fd int = -1
-	//client.conn, err = net.ListenMulticastUDP("udp", ifn, &client.dst)
+	//client.conn, err = net.ListenMulticastUDP("udp4", ifn, &client.dst)
 	laddr := net.UDPAddr{IP: net.IPv4(0, 0, 0, 0), Port: port}
-	client.conn, err = net.ListenUDP("udp", &laddr)
+	client.conn, err = net.ListenUDP("udp4", &laddr)
 	if err != nil {
 		return nil, err
 	}

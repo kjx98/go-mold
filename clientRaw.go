@@ -102,7 +102,7 @@ func (c *Client) Read() ([]Message, error) {
 	for c.Running {
 		n, remoteAddr, err := syscall.Recvfrom(c.fd, c.buff, 0)
 		if err != nil {
-			log.Error("ReadFromUDP from", remoteAddr, " ", err)
+			log.Error("Recvfrom", remoteAddr, " ", err)
 			return nil, err
 		}
 		if res, req, err := c.ClientBase.gotBuff(n); err != nil {
@@ -132,6 +132,9 @@ func (c *Client) request(buff []byte) {
 		return
 	}
 	c.nRequest++
+	if c.nRequest < 5 {
+		log.Info("Send reTrans seq:", c.seqNo, " req to", c.reqSrv[c.robinN])
+	}
 	if err := syscall.Sendto(c.fd, buff, 0, &c.reqSrv[c.robinN]); err != nil {
 		log.Error("Req reTrans", err)
 	}

@@ -2,9 +2,13 @@ dist: xenial
 language: go
 
 go:
-  - "1.12.x"
+  - "1.11.x"
+
+before_install:
+  - sudo apt-get update -q
 
 install:
+  - export GO111MODULE="on"
 
 script:
     - go test -v

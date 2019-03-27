@@ -25,10 +25,17 @@ bin/client:	cmd/client/main.go
 	@go build -o $@ $^
 	@strip $@ || echo "client OK"
 
+bin/clientRaw:	cmd/client/main.go
+	@[ -d bin ] || mkdir bin
+	@go build -tags rawSocket -o $@ $^
+	@strip $@ || echo "clientRaw OK"
+
 bin/server:	cmd/server/main.go
 	@[ -d bin ] || mkdir bin
 	@go build -o $@ $^
 	@strip $@ || echo "server OK"
+
+raw: bin/clientRaw
 
 test:
 	@go test
@@ -43,4 +50,4 @@ clean:
 	@rm -f bin/*
 
 distclean: clean
-	@rm -rf bin build
+	@rm -rf bin
