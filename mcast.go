@@ -77,10 +77,6 @@ func SetMulticastTTL(fd, ttl int) error {
 		syscall.IP_MULTICAST_TTL, ttl)
 }
 
-func SetPortReuse(fd int) {
-	syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-}
-
 func SetMulticastLoop(fd int, bLoop bool) error {
 	var iVal = 0
 	if bLoop {
