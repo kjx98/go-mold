@@ -5,6 +5,7 @@ package MoldUDP
 import (
 	"net"
 	"runtime"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,21 +19,22 @@ const (
 //	Running		bool
 //	Session		session for all messages
 type Server struct {
-	Session         string
-	dst             net.UDPAddr
-	conn            *net.UDPConn
-	PPms            int
-	Running         bool
-	endSession      bool
-	seqNo           uint64
-	endTime         int64
-	waits           int // wait for 5 seconds end of session
-	nRecvs, nSent   int
-	nError, nResent int
-	nHeartBB        int
-	nSleep          int
-	msgs            []Message
-	buff            []byte
+	Session       string
+	dst           net.UDPAddr
+	conn          *net.UDPConn
+	PPms          int
+	Running       bool
+	endSession    bool
+	seqNo         uint64
+	endTime       int64
+	waits         int // wait for 5 seconds end of session
+	nRecvs, nSent int
+	nError        int
+	nResent       int64
+	nHeartBB      int
+	nSleep        int
+	msgs          []Message
+	buff          []byte
 }
 
 func (c *Server) Close() error {
@@ -130,7 +132,7 @@ func (c *Server) RequestLoop() {
 				log.Error("EncodeHead for proccess reTrans", err)
 				continue
 			}
-			c.nResent++
+			atomic.AddInt64(&c.nResent, 1)
 			if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], &remoteA); err != nil {
 				log.Error("Res WriteToUDP", remoteA, err)
 			}
