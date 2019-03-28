@@ -106,49 +106,55 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, er
 	return &server, nil
 }
 
-var nResends int
+type hostControl struct {
+	remote   net.UDPAddr
+	seqAcked uint64
+	seqNext  uint64 // max nak sequence
+	running  int32
+}
 
 // RequestLoop		go routine process request retrans
 func (c *Server) RequestLoop() {
-	//seqNoHost := map[string]uint64{}
-	doReq := func(seqNo uint64, cnt uint16, remoteA net.UDPAddr) {
+	hostMap := map[string]*hostControl{}
+	var nResends int
+
+	doReq := func(hc *hostControl) {
+		//seqNo uint64, cnt uint16, remoteA net.UDPAddr
 		// only retrans one UDP packet
 		// proce reTrans
 		var buff [maxUDPsize]byte
+		seqNo := hc.seqAcked
 
-		firstS := int(seqNo) - 1
-		lastS := firstS + int(cnt)
 		defer atomic.AddInt32(&c.nGoes, -1)
-		/*
-			rAddr := remoteA.IP.String()
-					if savedSeq, ok := seqNoHost[rAddr]; ok {
-						log.Info(rAddr, "already in process retrans for", savedSeq)
-						return
-					}
-					seqNoHost[rAddr] = seqNo
-				defer delete(seqNoHost, rAddr)
-		*/
 		nResends++
 		if nResends%10 == 0 {
-			log.Infof("Resend packets to %s Seq: %d -- %d", remoteA.IP,
-				firstS+1, lastS+1)
+			log.Infof("Resend packets to %s Seq: %d -- %d", hc.remote.IP,
+				seqNo, hc.seqNext)
 		}
 		sHead := Header{Session: c.Session, SeqNo: seqNo}
-		for firstS < lastS {
-			msgCnt, bLen := Marshal(buff[headSize:], c.msgs[firstS:lastS])
+		i := 0
+		for seqNo < atomic.LoadUint64(&hc.seqNext) {
+			lastS := int(atomic.LoadUint64(&hc.seqNext))
+			msgCnt, bLen := Marshal(buff[headSize:], c.msgs[seqNo-1:lastS-1])
 			sHead.MessageCnt = uint16(msgCnt)
 			if err := EncodeHead(buff[:headSize], &sHead); err != nil {
 				log.Error("EncodeHead for proccess reTrans", err)
 				continue
 			}
 			atomic.AddInt64(&c.nResent, 1)
-			if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], &remoteA); err != nil {
-				log.Error("Res WriteToUDP", remoteA, err)
+			if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], &hc.remote); err != nil {
+				log.Error("Res WriteToUDP", hc.remote, err)
 				break
 			}
-			firstS += msgCnt
-			sHead.SeqNo += uint64(msgCnt)
+			i++
+			if i >= 10 {
+				i = 0
+				time.Sleep(time.Millisecond)
+			}
+			seqNo += uint64(msgCnt)
+			sHead.SeqNo = seqNo
 		}
+		atomic.StoreInt32(&hc.running, 0)
 	}
 	for c.Running {
 		n, remoteAddr, err := c.conn.ReadFromUDP(c.buff)
@@ -178,14 +184,36 @@ func (c *Server) RequestLoop() {
 			c.nError++
 			continue
 		}
-		if atomic.LoadInt32(&c.nGoes) > maxGoes {
-			continue
+		rAddr := remoteAddr.IP.String()
+		var hc *hostControl
+		seqNext := head.SeqNo + uint64(head.MessageCnt)
+		if hh, ok := hostMap[rAddr]; ok {
+			hc = hh
+			if atomic.LoadInt32(&hc.running) == 0 {
+				hc.seqAcked = head.SeqNo
+			}
+			log.Info(rAddr, "in process retrans for", hc.seqAcked, hc.seqNext)
+		} else {
+			hc = &hostControl{seqAcked: head.SeqNo, remote: *remoteAddr}
+			hc.running = 1
+			hostMap[rAddr] = hc
 		}
-		nGoes := int(atomic.AddInt32(&c.nGoes, 1))
-		if nGoes > c.nMaxGoes {
-			c.nMaxGoes = nGoes
+		if atomic.LoadUint64(&hc.seqNext) < seqNext {
+			atomic.StoreUint64(&hc.seqNext, seqNext)
 		}
-		go doReq(head.SeqNo, head.MessageCnt, *remoteAddr)
+
+		if atomic.LoadInt32(&hc.running) == 0 {
+			if atomic.LoadInt32(&c.nGoes) > maxGoes {
+				continue
+			}
+			nGoes := int(atomic.AddInt32(&c.nGoes, 1))
+			if nGoes > c.nMaxGoes {
+				c.nMaxGoes = nGoes
+			}
+			atomic.StoreInt32(&hc.running, 1)
+			go doReq(hc)
+		}
+
 	}
 }
 

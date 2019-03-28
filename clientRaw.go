@@ -50,6 +50,7 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 		return nil, err
 	}
 
+	ReserveRecvBuf(client.fd)
 	syscall.SetsockoptInt(client.fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 	// set Multicast
 	err = syscall.Bind(client.fd, &syscall.SockaddrInet4{Port: port})
