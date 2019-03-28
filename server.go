@@ -12,7 +12,7 @@ import (
 const (
 	maxUDPsize   = 1472
 	heartBeatInt = 2
-	maxGoes      = 1000
+	maxGoes      = 512
 	PPms         = 100 // packets per ms
 )
 
@@ -31,7 +31,7 @@ type Server struct {
 	waits         int // wait for 5 seconds end of session
 	nRecvs, nSent int
 	nError        int
-	nResent       int64
+	nResent       int32
 	nGoes         int32
 	nMaxGoes      int
 	nHeartBB      int
@@ -141,7 +141,7 @@ func (c *Server) RequestLoop() {
 				log.Error("EncodeHead for proccess reTrans", err)
 				continue
 			}
-			atomic.AddInt64(&c.nResent, 1)
+			atomic.AddInt32(&c.nResent, 1)
 			if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], &hc.remote); err != nil {
 				log.Error("Res WriteToUDP", hc.remote, err)
 				break
@@ -194,7 +194,9 @@ func (c *Server) RequestLoop() {
 			}
 			log.Info(rAddr, "in process retrans for", hc.seqAcked, hc.seqNext)
 		} else {
-			hc = &hostControl{seqAcked: head.SeqNo, remote: *remoteAddr}
+			hc = new(hostControl)
+			hc.seqAcked = head.SeqNo
+			hc.remote = *remoteAddr
 			hc.running = 1
 			hostMap[rAddr] = hc
 		}
