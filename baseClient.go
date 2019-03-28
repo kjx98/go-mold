@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	reqInterval = 100 * time.Millisecond
-	maxMessages = 1024
+	reqInterval    = 100 * time.Millisecond
+	maxMessages    = 1024
+	cacheThreshold = 1024 // start combine retrans
 )
 
 // ClientBase struct for MoldUDP client
@@ -27,6 +28,8 @@ type ClientBase struct {
 	robinN           int
 	session          string
 	buff             []byte
+	maxCache         int
+	nMerges          int
 	cache            []*messageCache
 }
 
@@ -82,11 +85,13 @@ func (c *ClientBase) storeCache(buf []Message, seqNo uint64) uint64 {
 			// append
 			c.cache = append(c.cache, &newCC)
 			return seqNo
-		} else {
+		} else if seqNext < sNext {
 			// merge, seqNo overlap, no Retrans need
 			c.cache[cnt-1].data = append(c.cache[cnt-1].data,
 				buf[seqNext-seqNo:]...)
+			//log.Info("storeCache merge tail overlap")
 		}
+		c.nMerges++
 		return 0
 	} else {
 		// insert or  merge
@@ -100,9 +105,13 @@ func (c *ClientBase) storeCache(buf []Message, seqNo uint64) uint64 {
 			if nNext := cc.seqNext; nNext > seqNext {
 				newCC.data = append(newCC.data, cc.data[seqNext-nn:]...)
 				newCC.seqNext = nNext
+				log.Info("storeCache insert merge tail")
 			}
+			c.nMerges++
 			off++
 		}
+		// seqNext may change
+		seqNext = newCC.seqNext
 		cct := c.cache[off:]
 		if prev < 0 {
 			c.cache = append([]*messageCache{&newCC}, cct...)
@@ -112,6 +121,7 @@ func (c *ClientBase) storeCache(buf []Message, seqNo uint64) uint64 {
 				cc.data = append(cc.data, buf[cc.seqNext-seqNo:]...)
 			}
 			c.cache = append(c.cache[:prev+1], cct...)
+			c.nMerges++
 			return 0
 		} else {
 			// insert
@@ -136,6 +146,7 @@ func (c *ClientBase) popCache(seqNo uint64) []Message {
 	if i >= len(c.cache) {
 		// all cache got
 		c.cache = []*messageCache{}
+		log.Info("popCache expire all cache")
 		return nil
 	}
 	c.cache = c.cache[i:]
@@ -143,6 +154,9 @@ func (c *ClientBase) popCache(seqNo uint64) []Message {
 		ret := cc.data
 		off := int(seqNo - cc.seqNo)
 		c.cache = c.cache[1:]
+		if off > 0 {
+			log.Info("popCache merge", off, "overlap")
+		}
 		return ret[off:]
 	}
 	return nil
@@ -178,6 +192,7 @@ func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 	if head.MessageCnt == 0xffff {
 		log.Info("Got endSession packet")
 		if c.seqNo >= c.seqMax {
+			log.Info("Got all messages seqNo:", c.seqNo, " stop running")
 			c.Running = false
 		}
 	}
@@ -197,10 +212,14 @@ func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 		// cache or not for MessageCnt not 0, 0xffff
 		if seqF := c.seqNo; seqNo > seqF {
 			seqNo = c.storeCache(res, seqNo)
-			reqBuf := c.newReq(seqNo)
-			if reqBuf != nil {
-				c.nMissed++
+			if len(c.cache) > c.maxCache {
+				c.maxCache = len(c.cache)
 			}
+			if seqNo <= seqF {
+				return nil, nil, nil
+			}
+			reqBuf := c.newReq(seqNo)
+			c.nMissed++
 			return nil, reqBuf, nil
 		}
 	} else {
@@ -245,7 +264,7 @@ func (c *ClientBase) newReq(seqNo uint64) []byte {
 	}
 	c.reqLast = tt
 	seqF := c.seqNo
-	if len(c.cache) > 0 {
+	if len(c.cache) > 0 && len(c.cache) < cacheThreshold {
 		// near window
 		seqNo = c.cache[0].seqNo
 	}
@@ -268,6 +287,7 @@ func (c *Client) SeqNo() int {
 }
 
 func (c *Client) DumpStats() {
-	log.Infof("Total Recv:%d seqNo: %d, error: %d, missed: %d, Request: %d/%d",
-		c.nRecvs, c.seqNo, c.nError, c.nMissed, c.nRequest, c.nRepeats)
+	log.Infof("Total Recv:%d seqNo: %d, error: %d, missed: %d, Request: %d/%d"+
+		"\nmaxCache: %d, cache merge: %d", c.nRecvs, c.seqNo, c.nError,
+		c.nMissed, c.nRequest, c.nRepeats, c.maxCache, c.nMerges)
 }

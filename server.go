@@ -106,6 +106,8 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, er
 	return &server, nil
 }
 
+var nResends int
+
 // RequestLoop		go routine process request retrans
 func (c *Server) RequestLoop() {
 	//seqNoHost := map[string]uint64{}
@@ -126,8 +128,11 @@ func (c *Server) RequestLoop() {
 					seqNoHost[rAddr] = seqNo
 				defer delete(seqNoHost, rAddr)
 		*/
-
-		log.Infof("Resend packets to %s Seq: %d -- %d", remoteA.IP, firstS+1, lastS+1)
+		nResends++
+		if nResends%10 == 0 {
+			log.Infof("Resend packets to %s Seq: %d -- %d", remoteA.IP,
+				firstS+1, lastS+1)
+		}
 		sHead := Header{Session: c.Session, SeqNo: seqNo}
 		for firstS < lastS {
 			msgCnt, bLen := Marshal(buff[headSize:], c.msgs[firstS:lastS])
