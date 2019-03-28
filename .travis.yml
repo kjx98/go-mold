@@ -4,6 +4,10 @@ language: go
 go:
   - "1.11.x"
 
+branches:
+  only:
+  - master
+
 before_install:
   - sudo apt-get update -q
 
