@@ -12,6 +12,7 @@ import (
 const (
 	maxUDPsize   = 1472
 	heartBeatInt = 2
+	maxGoes      = 1000
 	PPms         = 100 // packets per ms
 )
 
@@ -31,8 +32,8 @@ type Server struct {
 	nRecvs, nSent int
 	nError        int
 	nResent       int64
-	nGoes         int64
-	maxGoes       int
+	nGoes         int32
+	nMaxGoes      int
 	nHeartBB      int
 	nSleep        int
 	msgs          []Message
@@ -115,7 +116,7 @@ func (c *Server) RequestLoop() {
 
 		firstS := int(seqNo) - 1
 		lastS := firstS + int(cnt)
-		defer atomic.AddInt64(&c.nGoes, -1)
+		defer atomic.AddInt32(&c.nGoes, -1)
 		/*
 			rAddr := remoteA.IP.String()
 					if savedSeq, ok := seqNoHost[rAddr]; ok {
@@ -126,8 +127,8 @@ func (c *Server) RequestLoop() {
 				defer delete(seqNoHost, rAddr)
 		*/
 
-		log.Infof("Resend packets Seq: %d to: %d", firstS, lastS)
-		sHead := Header{Session: c.Session}
+		log.Infof("Resend packets to %s Seq: %d -- %d", remoteA.IP, firstS+1, lastS+1)
+		sHead := Header{Session: c.Session, SeqNo: seqNo}
 		for firstS < lastS {
 			msgCnt, bLen := Marshal(buff[headSize:], c.msgs[firstS:lastS])
 			sHead.MessageCnt = uint16(msgCnt)
@@ -138,8 +139,10 @@ func (c *Server) RequestLoop() {
 			atomic.AddInt64(&c.nResent, 1)
 			if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], &remoteA); err != nil {
 				log.Error("Res WriteToUDP", remoteA, err)
+				break
 			}
 			firstS += msgCnt
+			sHead.SeqNo += uint64(msgCnt)
 		}
 	}
 	for c.Running {
@@ -170,9 +173,12 @@ func (c *Server) RequestLoop() {
 			c.nError++
 			continue
 		}
-		nGoes := int(atomic.AddInt64(&c.nGoes, 1))
-		if nGoes > c.maxGoes {
-			c.maxGoes = nGoes
+		if atomic.LoadInt32(&c.nGoes) > maxGoes {
+			continue
+		}
+		nGoes := int(atomic.AddInt32(&c.nGoes, 1))
+		if nGoes > c.nMaxGoes {
+			c.nMaxGoes = nGoes
 		}
 		go doReq(head.SeqNo, head.MessageCnt, *remoteAddr)
 	}
@@ -253,5 +259,5 @@ func (c *Server) DumpStats() {
 	log.Infof("Total Sent: %d HeartBeat: %d seqNo: %d, sleep: %d\n"+
 		"Recv: %d, errors: %d, reSent: %d, maxGoes: %d",
 		c.nSent, c.nHeartBB, c.seqNo, c.nSleep, c.nRecvs, c.nError,
-		c.nResent, c.maxGoes)
+		c.nResent, c.nMaxGoes)
 }

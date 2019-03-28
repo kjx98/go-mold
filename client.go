@@ -69,7 +69,21 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 	}
 	client.Running = true
 	client.LastRecv = time.Now().Unix()
+	go client.requestLoop()
 	return &client, nil
+}
+
+func (c *Client) requestLoop() {
+	for c.Running {
+		if c.seqNo < c.seqMax {
+			req := c.newReq(c.seqMax)
+			if req != nil {
+				// need send Request
+				c.request(req)
+			}
+		}
+		time.Sleep(time.Millisecond * 200)
+	}
 }
 
 // Read			Get []Message in order

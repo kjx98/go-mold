@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	reqInterval = 2
+	reqInterval = 100 * time.Millisecond
 	maxMessages = 1024
 )
 
@@ -20,9 +20,10 @@ type ClientBase struct {
 	LastRecv         int64
 	seqNo            uint64
 	seqMax           uint64
-	reqLast          int64
+	reqLast          time.Time
 	nRecvs, nRequest int
 	nError, nMissed  int
+	nRepeats         int
 	robinN           int
 	session          string
 	buff             []byte
@@ -69,7 +70,7 @@ var (
 	errSession       = errors.New("Session dismatch")
 )
 
-func (c *ClientBase) storeCache(buf []Message, seqNo uint64) (uint64, uint64) {
+func (c *ClientBase) storeCache(buf []Message, seqNo uint64) uint64 {
 	// should deep copy buf
 	seqNext := seqNo + uint64(len(buf))
 	var newCC = messageCache{seqNo: seqNo, seqNext: seqNext, data: buf}
@@ -80,13 +81,13 @@ func (c *ClientBase) storeCache(buf []Message, seqNo uint64) (uint64, uint64) {
 		if sNext := c.cache[cnt-1].seqNext; seqNo > sNext {
 			// append
 			c.cache = append(c.cache, &newCC)
-			return sNext, seqNo
+			return seqNo
 		} else {
 			// merge, seqNo overlap, no Retrans need
 			c.cache[cnt-1].data = append(c.cache[cnt-1].data,
 				buf[seqNext-seqNo:]...)
 		}
-		return 0, 0
+		return 0
 	} else {
 		// insert or  merge
 		off := sort.Search(cnt, func(i int) bool {
@@ -102,29 +103,47 @@ func (c *ClientBase) storeCache(buf []Message, seqNo uint64) (uint64, uint64) {
 			}
 			off++
 		}
+		cct := c.cache[off:]
 		if prev < 0 {
-			c.cache = append([]*messageCache{&newCC}, c.cache[off:]...)
+			c.cache = append([]*messageCache{&newCC}, cct...)
 		} else if cc := c.cache[prev]; cc.seqNext >= seqNo {
 			// merge head, no Retrans need
 			if seqNext > cc.seqNext {
 				cc.data = append(cc.data, buf[cc.seqNext-seqNo:]...)
 			}
-			return 0, 0
+			c.cache = append(c.cache[:prev+1], cct...)
+			return 0
 		} else {
 			// insert
-			ccs := append([]*messageCache{&newCC}, c.cache[off:]...)
-			c.cache = append(c.cache[:prev], ccs...)
-			return cc.seqNext, seqNo
+			ccs := append([]*messageCache{&newCC}, cct...)
+			c.cache = append(c.cache[:prev+1], ccs...)
+			return seqNo
 		}
 	}
-	return c.seqNo, seqNo
+	return seqNo
 }
 
 func (c *ClientBase) popCache(seqNo uint64) []Message {
-	if len(c.cache) > 0 && c.cache[0].seqNo == seqNo {
-		ret := c.cache[0].data
+	if len(c.cache) == 0 {
+		return nil
+	}
+	var i int
+	for i = 0; i < len(c.cache); i++ {
+		if c.cache[i].seqNext > seqNo {
+			break
+		}
+	}
+	if i >= len(c.cache) {
+		// all cache got
+		c.cache = []*messageCache{}
+		return nil
+	}
+	c.cache = c.cache[i:]
+	if cc := c.cache[0]; cc.seqNo <= seqNo {
+		ret := cc.data
+		off := int(seqNo - cc.seqNo)
 		c.cache = c.cache[1:]
-		return ret
+		return ret[off:]
 	}
 	return nil
 }
@@ -162,28 +181,47 @@ func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 			c.Running = false
 		}
 	}
-	if head.SeqNo != c.seqNo {
+	seqNo := head.SeqNo
+	if msgCnt := head.MessageCnt; msgCnt != 0 && msgCnt != 0xffff {
 		// should request for retransmit
-		seqNo := head.SeqNo // + uint64(head.MessageCnt)
-		// cache or not for MessageCnt not 0, 0xffff
-		seqF := c.seqNo
-		if msgCnt := head.MessageCnt; msgCnt != 0 && msgCnt != 0xffff {
-			seqF, seqNo = c.storeCache(res, head.SeqNo)
-		}
-		reqBuf := c.newReq(seqF, seqNo)
-		c.nMissed++
-		return nil, reqBuf, nil
-	}
-	switch head.MessageCnt {
-	case 0xffff, 0:
-		// endSession
-		// or heartbeat
-		return nil, nil, nil
-	default:
-		if headSize == n {
+		if len(res) != int(msgCnt) {
 			c.nError++
 			return nil, nil, errMessageCnt
 		}
+		seqNext := seqNo + uint64(msgCnt)
+		if seqNext < c.seqNo {
+			// already got
+			c.nRepeats++
+			return nil, nil, nil
+		}
+		// cache or not for MessageCnt not 0, 0xffff
+		if seqF := c.seqNo; seqNo > seqF {
+			seqNo = c.storeCache(res, seqNo)
+			reqBuf := c.newReq(seqNo)
+			if reqBuf != nil {
+				c.nMissed++
+			}
+			return nil, reqBuf, nil
+		}
+	} else {
+		// endSession
+		// or heartbeat
+		if c.seqNo < seqNo {
+			reqBuf := c.newReq(seqNo)
+			if reqBuf != nil {
+				c.nMissed++
+			}
+			return nil, reqBuf, nil
+		}
+		return nil, nil, nil
+	}
+	if headSize == n {
+		c.nError++
+		return nil, nil, errMessageCnt
+	}
+	seqNo = head.SeqNo
+	if c.seqNo > seqNo {
+		res = res[int(c.seqNo-seqNo):]
 	}
 	c.seqNo += uint64(len(res))
 	if bb := c.popCache(c.seqNo); bb != nil {
@@ -194,16 +232,23 @@ func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 	return res, nil, nil
 }
 
-func (c *ClientBase) newReq(seqF, seqNo uint64) []byte {
-	tt := time.Now().Unix()
+func (c *ClientBase) newReq(seqNo uint64) []byte {
+	if c.seqNo >= seqNo {
+		return nil
+	}
+	tt := time.Now()
 	if seqNo > c.seqMax {
 		c.seqMax = seqNo
-	} else {
-		if c.reqLast+reqInterval > tt {
-			//return nil
-		}
+	}
+	if tt.Sub(c.reqLast) < reqInterval {
+		return nil
 	}
 	c.reqLast = tt
+	seqF := c.seqNo
+	if len(c.cache) > 0 {
+		// near window
+		seqNo = c.cache[0].seqNo
+	}
 	cnt := seqNo - seqF
 	if cnt > 60000 {
 		cnt = 60000
@@ -223,6 +268,6 @@ func (c *Client) SeqNo() int {
 }
 
 func (c *Client) DumpStats() {
-	log.Infof("Total Recv: %d seqNo: %d, errors: %d, missed: %d, Request: %d",
-		c.nRecvs, c.seqNo, c.nError, c.nMissed, c.nRequest)
+	log.Infof("Total Recv:%d seqNo: %d, error: %d, missed: %d, Request: %d/%d",
+		c.nRecvs, c.seqNo, c.nError, c.nMissed, c.nRequest, c.nRepeats)
 }
