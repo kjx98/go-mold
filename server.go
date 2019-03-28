@@ -197,7 +197,6 @@ func (c *Server) RequestLoop() {
 			hc = new(hostControl)
 			hc.seqAcked = head.SeqNo
 			hc.remote = *remoteAddr
-			hc.running = 1
 			hostMap[rAddr] = hc
 		}
 		if atomic.LoadUint64(&hc.seqNext) < seqNext {
@@ -215,7 +214,6 @@ func (c *Server) RequestLoop() {
 			atomic.StoreInt32(&hc.running, 1)
 			go doReq(hc)
 		}
-
 	}
 }
 
