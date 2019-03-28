@@ -146,10 +146,11 @@ func (c *Client) request(buff []byte) {
 		return
 	}
 	c.nRequest++
+	adr := &c.reqSrv[c.robinN]
 	if c.nRequest < 5 {
-		log.Info("Send reTrans seq:", c.seqNo, " req to", c.reqSrv[c.robinN])
+		log.Info("Send reTrans seq:", c.seqNo, " req to", adr.Addr, adr.Port)
 	}
-	if err := syscall.Sendto(c.fd, buff, 0, &c.reqSrv[c.robinN]); err != nil {
+	if err := syscall.Sendto(c.fd, buff, 0, adr); err != nil {
 		log.Error("Req Sendto", err)
 	}
 	c.robinN++

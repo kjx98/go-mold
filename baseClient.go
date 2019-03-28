@@ -105,7 +105,7 @@ func (c *ClientBase) storeCache(buf []Message, seqNo uint64) uint64 {
 			if nNext := cc.seqNext; nNext > seqNext {
 				newCC.data = append(newCC.data, cc.data[seqNext-nn:]...)
 				newCC.seqNext = nNext
-				log.Info("storeCache insert merge tail")
+				//log.Info("storeCache insert merge tail")
 			}
 			c.nMerges++
 			off++
