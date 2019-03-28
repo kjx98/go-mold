@@ -3,6 +3,7 @@ package MoldUDP
 import (
 	"errors"
 	"net"
+	"sort"
 	"time"
 )
 
@@ -25,7 +26,7 @@ type ClientBase struct {
 	robinN           int
 	session          string
 	buff             []byte
-	head, tail       map[uint64]*messageCache
+	cache            []*messageCache
 }
 
 type messageCache struct {
@@ -34,7 +35,7 @@ type messageCache struct {
 	data    []Message
 }
 
-// Option	options for Client connectionmap[uint64]*messageCache
+// Option	options for Client connection
 //	Srvs	request servers, host[:port]
 //	IfName	if nor blank, if interface for Multicast
 //	NextSeq	next sequence number for listen packet, 1 based
@@ -50,8 +51,7 @@ func (c *ClientBase) initClientBase(opt *Option) *net.Interface {
 	if c.seqNo == 0 {
 		c.seqNo++
 	}
-	c.head = map[uint64]*messageCache{}
-	c.tail = map[uint64]*messageCache{}
+	c.cache = []*messageCache{}
 	var ifn *net.Interface
 	if opt.IfName != "" {
 		if ifn, err = net.InterfaceByName(opt.IfName); err != nil {
@@ -69,37 +69,61 @@ var (
 	errSession       = errors.New("Session dismatch")
 )
 
-func (c *ClientBase) storeCache(buf []Message, seqNo uint64) uint64 {
+func (c *ClientBase) storeCache(buf []Message, seqNo uint64) (uint64, uint64) {
 	// should deep copy buf
 	seqNext := seqNo + uint64(len(buf))
 	var newCC = messageCache{seqNo: seqNo, seqNext: seqNext, data: buf}
-	if cc, ok := c.head[seqNext]; ok {
-		// found tail to merge
-		delete(c.head, seqNext)
-		delete(c.tail, cc.seqNext)
-		newCC.data = append(newCC.data, cc.data...)
-		seqNext = cc.seqNext
+	if len(c.cache) == 0 {
+		c.cache = []*messageCache{&newCC}
+	} else if cnt := len(c.cache); c.cache[cnt-1].seqNo < seqNo {
+		// append or merge
+		if sNext := c.cache[cnt-1].seqNext; seqNo > sNext {
+			// append
+			c.cache = append(c.cache, &newCC)
+			return sNext, seqNo
+		} else {
+			// merge, seqNo overlap, no Retrans need
+			c.cache[cnt-1].data = append(c.cache[cnt-1].data,
+				buf[seqNext-seqNo:]...)
+		}
+		return 0, 0
+	} else {
+		// insert or  merge
+		off := sort.Search(cnt, func(i int) bool {
+			return c.cache[i].seqNo >= seqNo
+		})
+		prev := off - 1
+		cc := c.cache[off]
+		if nn := cc.seqNo; seqNext >= nn {
+			// merge next
+			if nNext := cc.seqNext; nNext > seqNext {
+				newCC.data = append(newCC.data, cc.data[seqNext-nn:]...)
+				newCC.seqNext = nNext
+			}
+			off++
+		}
+		if prev < 0 {
+			c.cache = append([]*messageCache{&newCC}, c.cache[off:]...)
+		} else if cc := c.cache[prev]; cc.seqNext >= seqNo {
+			// merge head, no Retrans need
+			if seqNext > cc.seqNext {
+				cc.data = append(cc.data, buf[cc.seqNext-seqNo:]...)
+			}
+			return 0, 0
+		} else {
+			// insert
+			ccs := append([]*messageCache{&newCC}, c.cache[off:]...)
+			c.cache = append(c.cache[:prev], ccs...)
+			return cc.seqNext, seqNo
+		}
 	}
-	if cc, ok := c.tail[seqNo]; ok {
-		// found head to merge
-		delete(c.tail, seqNo)
-		delete(c.head, cc.seqNo)
-		newCC.data = append(cc.data, newCC.data...)
-		seqNo = cc.seqNo
-	}
-	newCC.seqNo = seqNo
-	newCC.seqNext = seqNext
-	c.head[seqNo] = &newCC
-	c.tail[seqNext] = &newCC
-	return seqNo
+	return c.seqNo, seqNo
 }
 
 func (c *ClientBase) popCache(seqNo uint64) []Message {
-	if cc, ok := c.head[seqNo]; ok {
-		// found
-		delete(c.tail, cc.seqNext)
-		ret := cc.data
-		delete(c.head, cc.seqNo)
+	if len(c.cache) > 0 && c.cache[0].seqNo == seqNo {
+		ret := c.cache[0].data
+		c.cache = c.cache[1:]
 		return ret
 	}
 	return nil
@@ -142,10 +166,11 @@ func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 		// should request for retransmit
 		seqNo := head.SeqNo // + uint64(head.MessageCnt)
 		// cache or not for MessageCnt not 0, 0xffff
+		seqF := c.seqNo
 		if msgCnt := head.MessageCnt; msgCnt != 0 && msgCnt != 0xffff {
-			seqNo = c.storeCache(res, head.SeqNo)
+			seqF, seqNo = c.storeCache(res, head.SeqNo)
 		}
-		reqBuf := c.newReq(seqNo)
+		reqBuf := c.newReq(seqF, seqNo)
 		c.nMissed++
 		return nil, reqBuf, nil
 	}
@@ -169,21 +194,21 @@ func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 	return res, nil, nil
 }
 
-func (c *ClientBase) newReq(seqNo uint64) []byte {
+func (c *ClientBase) newReq(seqF, seqNo uint64) []byte {
 	tt := time.Now().Unix()
 	if seqNo > c.seqMax {
 		c.seqMax = seqNo
 	} else {
 		if c.reqLast+reqInterval > tt {
-			return nil
+			//return nil
 		}
 	}
 	c.reqLast = tt
-	cnt := c.seqMax - c.seqNo
+	cnt := seqNo - seqF
 	if cnt > 60000 {
 		cnt = 60000
 	}
-	head := Header{Session: c.session, SeqNo: c.seqNo}
+	head := Header{Session: c.session, SeqNo: seqF}
 	head.MessageCnt = uint16(cnt)
 	buff := [headSize]byte{}
 	if err := EncodeHead(buff[:], &head); err != nil {
