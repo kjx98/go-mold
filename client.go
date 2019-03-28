@@ -51,6 +51,9 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 	} else {
 		log.Error("Get UDPConn fd", err)
 	}
+	if fd >= 0 {
+		ReserveRecvBuf(fd)
+	}
 	if err := JoinMulticast(fd, client.dst.IP, ifn); err != nil {
 		log.Info("add multicast group", err)
 	}

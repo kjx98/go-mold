@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	reqInterval = 5
+	reqInterval = 2
 	maxMessages = 1024
 )
 
@@ -50,8 +50,8 @@ func (c *ClientBase) initClientBase(opt *Option) *net.Interface {
 	if c.seqNo == 0 {
 		c.seqNo++
 	}
-	//c.head = map[uint64]*messageCache{}
-	//c.tail = map[uint64]*messageCache{}
+	c.head = map[uint64]*messageCache{}
+	c.tail = map[uint64]*messageCache{}
 	var ifn *net.Interface
 	if opt.IfName != "" {
 		if ifn, err = net.InterfaceByName(opt.IfName); err != nil {
@@ -69,7 +69,7 @@ var (
 	errSession       = errors.New("Session dismatch")
 )
 
-func (c *ClientBase) storeCache(buf []Message, seqNo uint64) {
+func (c *ClientBase) storeCache(buf []Message, seqNo uint64) uint64 {
 	// should deep copy buf
 	seqNext := seqNo + uint64(len(buf))
 	var newCC = messageCache{seqNo: seqNo, seqNext: seqNext, data: buf}
@@ -91,6 +91,7 @@ func (c *ClientBase) storeCache(buf []Message, seqNo uint64) {
 	newCC.seqNext = seqNext
 	c.head[seqNo] = &newCC
 	c.tail[seqNext] = &newCC
+	return seqNo
 }
 
 func (c *ClientBase) popCache(seqNo uint64) []Message {
@@ -140,11 +141,11 @@ func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 	if head.SeqNo != c.seqNo {
 		// should request for retransmit
 		seqNo := head.SeqNo // + uint64(head.MessageCnt)
-		reqBuf := c.newReq(seqNo)
 		// cache or not for MessageCnt not 0, 0xffff
 		if msgCnt := head.MessageCnt; msgCnt != 0 && msgCnt != 0xffff {
-			c.storeCache(res, head.SeqNo)
+			seqNo = c.storeCache(res, head.SeqNo)
 		}
+		reqBuf := c.newReq(seqNo)
 		c.nMissed++
 		return nil, reqBuf, nil
 	}
@@ -169,12 +170,13 @@ func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 }
 
 func (c *ClientBase) newReq(seqNo uint64) []byte {
+	tt := time.Now().Unix()
 	if seqNo > c.seqMax {
 		c.seqMax = seqNo
-	}
-	tt := time.Now().Unix()
-	if c.reqLast+reqInterval > tt {
-		return nil
+	} else {
+		if c.reqLast+reqInterval > tt {
+			return nil
+		}
 	}
 	c.reqLast = tt
 	cnt := c.seqMax - c.seqNo

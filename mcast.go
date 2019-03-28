@@ -26,6 +26,23 @@ func getIfAddr(ifn *net.Interface) (net.IP, error) {
 	return ret, nil
 }
 
+func ReserveRecvBuf(fd int) {
+	bLen := 4 * 1024 * 1024
+	if bl, err := syscall.GetsockoptInt(fd, syscall.SOL_SOCKET,
+		syscall.SO_RCVBUF); err == nil {
+		log.Infof("Socket RCVBUF is %d Kb", bl/1024)
+	}
+	log.Infof("Try set Socket RcvBuf to %d KB", bLen/1024)
+	if err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_RCVBUF,
+		bLen); err != nil {
+		log.Error("SetsockoptInt, SO_RCVBUF", err)
+	}
+	if bl, err := syscall.GetsockoptInt(fd, syscall.SOL_SOCKET,
+		syscall.SO_RCVBUF); err == nil {
+		log.Infof("Socket RCVBUF is %d Kb", bl/1024)
+	}
+}
+
 //加入组播域
 func JoinMulticast(fd int, maddr net.IP, ifn *net.Interface) error {
 	var mreq = &syscall.IPMreq{}
