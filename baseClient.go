@@ -1,16 +1,19 @@
 package MoldUDP
 
 import (
+	"bytes"
 	"errors"
 	"net"
+	"runtime"
 	"sort"
+	"sync"
 	"time"
 )
 
 const (
 	reqInterval    = 20 * time.Millisecond
 	maxMessages    = 1024
-	cacheThreshold = 512 // start combine retrans
+	cacheThreshold = 256 // start combine retrans
 )
 
 // ClientBase struct for MoldUDP client
@@ -31,7 +34,16 @@ type ClientBase struct {
 	buff             []byte
 	maxCache         int
 	nMerges          int
+	readLock         sync.RWMutex
+	ch               chan msgBuf
+	ready            []Message
 	cache            []*messageCache
+}
+
+type msgBuf struct {
+	seqNo   uint64
+	msgCnt  uint16
+	dataBuf []byte
 }
 
 type messageCache struct {
@@ -65,6 +77,7 @@ func (c *ClientBase) initClientBase(opt *Option) *net.Interface {
 		}
 	}
 	c.buff = make([]byte, 2048)
+	c.ch = make(chan msgBuf, 10000)
 	return ifn
 }
 
@@ -163,34 +176,46 @@ func (c *ClientBase) popCache(seqNo uint64) []Message {
 	return nil
 }
 
-func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
+func (c *ClientBase) gotBuff(n int) error {
 	c.nRecvs++
 	var head Header
 	if err := DecodeHead(c.buff[:n], &head); err != nil {
 		c.nError++
-		return nil, nil, errDecodeHead
+		return errDecodeHead
 	}
-	if nMsg := head.MessageCnt; nMsg != 0xffff && nMsg >= maxMessages {
+	nMsg := head.MessageCnt
+	if nMsg != 0xffff && nMsg >= maxMessages {
 		c.nError++
-		return nil, nil, errInvMessageCnt
+		return errInvMessageCnt
 	}
 	c.LastRecv = time.Now().Unix()
 	if c.session == "" {
 		c.session = head.Session
 	} else if c.session != head.Session {
 		c.nError++
-		return nil, nil, errSession
+		return errSession
 	}
+
+	var newBuf []byte
+	if nMsg != 0xffff && nMsg != 0 {
+		newBuf = bytes.Repeat(c.buff[headSize:n], 1)
+	}
+	msgBB := msgBuf{seqNo: head.SeqNo, msgCnt: nMsg, dataBuf: newBuf}
+	c.ch <- msgBB
+	return nil
+}
+
+func (c *ClientBase) doMsgBuf(msgBB *msgBuf) ([]byte, error) {
 	var res []Message
-	if n > headSize {
-		if ret, err := Unmarshal(c.buff[headSize:n]); err != nil {
+	if len(msgBB.dataBuf) > 0 {
+		if ret, err := Unmarshal(msgBB.dataBuf); err != nil {
 			c.nError++
-			return nil, nil, err
+			return nil, err
 		} else {
 			res = ret
 		}
 	}
-	if head.MessageCnt == 0xffff {
+	if msgBB.msgCnt == 0xffff {
 		log.Info("Got endSession packet")
 		c.endSession = true
 		if c.seqNo >= c.seqMax {
@@ -198,18 +223,18 @@ func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 			c.Running = false
 		}
 	}
-	seqNo := head.SeqNo
-	if msgCnt := head.MessageCnt; msgCnt != 0 && msgCnt != 0xffff {
+	seqNo := msgBB.seqNo
+	if msgCnt := msgBB.msgCnt; msgCnt != 0 && msgCnt != 0xffff {
 		// should request for retransmit
 		if len(res) != int(msgCnt) {
 			c.nError++
-			return nil, nil, errMessageCnt
+			return nil, errMessageCnt
 		}
 		seqNext := seqNo + uint64(msgCnt)
 		if seqNext < c.seqNo {
 			// already got
 			c.nRepeats++
-			return nil, nil, nil
+			return nil, nil
 		}
 		// cache or not for MessageCnt not 0, 0xffff
 		if seqF := c.seqNo; seqNo > seqF {
@@ -218,11 +243,11 @@ func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 				c.maxCache = len(c.cache)
 			}
 			if seqNo <= seqF {
-				return nil, nil, nil
+				return nil, nil
 			}
 			reqBuf := c.newReq(seqNo)
 			c.nMissed++
-			return nil, reqBuf, nil
+			return reqBuf, nil
 		}
 	} else {
 		// endSession
@@ -232,15 +257,11 @@ func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 			if reqBuf != nil {
 				c.nMissed++
 			}
-			return nil, reqBuf, nil
+			return reqBuf, nil
 		}
-		return nil, nil, nil
+		return nil, nil
 	}
-	if headSize == n {
-		c.nError++
-		return nil, nil, errMessageCnt
-	}
-	seqNo = head.SeqNo
+	seqNo = msgBB.seqNo
 	if c.seqNo > seqNo {
 		res = res[int(c.seqNo-seqNo):]
 	}
@@ -254,7 +275,10 @@ func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 		log.Info("Got all messages via retrans seqNo:", c.seqNo, " stop running")
 		c.Running = false
 	}
-	return res, nil, nil
+	c.readLock.Lock()
+	c.ready = append(c.ready, res...)
+	c.readLock.Unlock()
+	return nil, nil
 }
 
 func (c *ClientBase) newReq(seqNo uint64) []byte {
@@ -288,11 +312,28 @@ func (c *ClientBase) newReq(seqNo uint64) []byte {
 	return buff[:headSize]
 }
 
+// Read			Get []Message in order
+//	[]Message	messages received in order
+//	return   	nil,nil   for end of session or finished
+func (c *ClientBase) Read() ([]Message, error) {
+	for c.Running {
+		c.readLock.Lock()
+		res := c.ready
+		c.ready = nil
+		c.readLock.Unlock()
+		if res != nil {
+			return res, nil
+		}
+		runtime.Gosched()
+	}
+	return nil, nil
+}
+
 func (c *Client) SeqNo() int {
 	return int(c.seqNo)
 }
 
-func (c *Client) DumpStats() {
+func (c *ClientBase) DumpStats() {
 	log.Infof("Total Recv:%d seqNo: %d, error: %d, missed: %d, Request: %d/%d"+
 		"\nmaxCache: %d, cache merge: %d", c.nRecvs, c.seqNo, c.nError,
 		c.nMissed, c.nRequest, c.nRepeats, c.maxCache, c.nMerges)

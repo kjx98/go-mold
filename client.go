@@ -70,49 +70,53 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 	client.Running = true
 	client.LastRecv = time.Now().Unix()
 	go client.requestLoop()
+	go client.doMsgLoop()
 	return &client, nil
 }
 
 func (c *Client) requestLoop() {
+	ticker := time.NewTicker(time.Millisecond * 200)
 	for c.Running {
-		if c.seqNo < c.seqMax {
-			req := c.newReq(c.seqMax)
-			if req != nil {
-				// need send Request
-				c.request(req)
+		select {
+		case <-ticker.C:
+			if c.seqNo < c.seqMax {
+				req := c.newReq(c.seqMax)
+				if req != nil {
+					// need send Request
+					c.request(req)
+				}
+			}
+		case msgBB, ok := <-c.ch:
+			if ok {
+				if req, err := c.doMsgBuf(&msgBB); err != nil {
+				} else {
+					if req != nil {
+						// need send Request
+						c.request(req)
+					}
+
+				}
 			}
 		}
-		time.Sleep(time.Millisecond * 200)
 	}
 }
 
-// Read			Get []Message in order
-//	[]Message	messages received in order
-//	return   	nil,nil   for end of session or finished
-func (c *Client) Read() ([]Message, error) {
+func (c *Client) doMsgLoop() {
 	for c.Running {
 		n, remoteAddr, err := c.conn.ReadFromUDP(c.buff)
 		if err != nil {
 			log.Error("ReadFromUDP from", remoteAddr, " ", err)
-			return nil, err
+			continue
 		}
-		if res, req, err := c.ClientBase.gotBuff(n); err != nil {
+		if err := c.ClientBase.gotBuff(n); err != nil {
 			log.Error("Packet from", remoteAddr, " error:", err)
-			return nil, err
+			continue
 		} else {
 			if len(c.reqSrv) == 0 {
 				c.reqSrv = append(c.reqSrv, remoteAddr)
 			}
-			if req != nil {
-				// need send Request
-				c.request(req)
-			}
-			if res != nil {
-				return res, nil
-			}
 		}
 	}
-	return nil, nil
 }
 
 func (c *Client) request(buff []byte) {

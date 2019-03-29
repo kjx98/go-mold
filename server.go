@@ -203,10 +203,7 @@ func (c *Server) RequestLoop() {
 			hc.seqAcked = head.SeqNo
 		}
 		if seqNext > hc.seqAcked+maxWindow {
-			if time.Now().Sub(lastLog) >= time.Second*2 {
-				log.Info("%d exceed maxWindow seqNo: %d", seqNext, hc.seqAcked)
-				lastLog = time.Now()
-			}
+			log.Info("%d exceed maxWindow seqNo: %d", seqNext, hc.seqAcked)
 			continue
 		}
 		if atomic.LoadUint64(&hc.seqNext) < seqNext {
@@ -244,6 +241,7 @@ func (c *Server) ServerLoop() {
 			c.nSent++
 		}
 	}
+	nSleeps := 0
 	for c.Running {
 		st := time.Now()
 		seqNo := int(c.seqNo)
@@ -271,7 +269,6 @@ func (c *Server) ServerLoop() {
 			runtime.Gosched()
 			continue
 		}
-		nSleeps := 0
 		mySleep := func(interv time.Duration) {
 			tt := time.Now()
 			for {
@@ -280,12 +277,9 @@ func (c *Server) ServerLoop() {
 				if du < interv {
 					continue
 				}
-				/*
-					if (nSleeps & 511) == 0 {
-						log.Infof("mySleep %d actual %d", interv.Nanoseconds(),
-							du.Nanoseconds())
-					}
-				*/
+				if (nSleeps & 0xffff) == 0 {
+					log.Infof("mySleep %d actual %d", interv, du)
+				}
 				nSleeps++
 				break
 			}
@@ -304,7 +298,7 @@ func (c *Server) ServerLoop() {
 			seqNo += msgCnt
 			//time.Sleep(time.Microsecond * 10)
 			//runtime.Gosched()
-			mySleep(time.Microsecond * 20)
+			mySleep(time.Microsecond * 25)
 		}
 		c.seqNo = uint64(seqNo)
 		dur := time.Now().Sub(st)

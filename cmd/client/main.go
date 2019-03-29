@@ -70,6 +70,9 @@ func main() {
 			if mess == nil {
 				break
 			}
+			if len(mess) == 0 {
+				continue
+			}
 			if firstTic == nil {
 				log.Infof("Got first %d messages", len(mess))
 				firstTic = ats.Bytes2TickFX(mess[0].Data)
