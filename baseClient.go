@@ -10,7 +10,7 @@ import (
 const (
 	reqInterval    = 100 * time.Millisecond
 	maxMessages    = 1024
-	cacheThreshold = 1024 // start combine retrans
+	cacheThreshold = 256 // start combine retrans
 )
 
 // ClientBase struct for MoldUDP client
@@ -18,6 +18,7 @@ const (
 //	LastRecv	int64	last time recv UDP
 type ClientBase struct {
 	Running          bool
+	endSession       bool
 	LastRecv         int64
 	seqNo            uint64
 	seqMax           uint64
@@ -191,6 +192,7 @@ func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 	}
 	if head.MessageCnt == 0xffff {
 		log.Info("Got endSession packet")
+		c.endSession = true
 		if c.seqNo >= c.seqMax {
 			log.Info("Got all messages seqNo:", c.seqNo, " stop running")
 			c.Running = false
@@ -243,11 +245,15 @@ func (c *ClientBase) gotBuff(n int) ([]Message, []byte, error) {
 		res = res[int(c.seqNo-seqNo):]
 	}
 	c.seqNo += uint64(len(res))
+	// shall we check head cache to merge
 	if bb := c.popCache(c.seqNo); bb != nil {
 		res = append(res, bb...)
 		c.seqNo += uint64(len(bb))
 	}
-	// shall we check head cache to merge
+	if c.endSession && c.seqNo >= c.seqMax {
+		log.Info("Got all messages via retrans seqNo:", c.seqNo, " stop running")
+		c.Running = false
+	}
 	return res, nil, nil
 }
 

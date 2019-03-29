@@ -132,7 +132,6 @@ func (c *Server) RequestLoop() {
 				seqNo, hc.seqNext)
 		}
 		sHead := Header{Session: c.Session, SeqNo: seqNo}
-		i := 0
 		for seqNo < atomic.LoadUint64(&hc.seqNext) {
 			lastS := int(atomic.LoadUint64(&hc.seqNext))
 			msgCnt, bLen := Marshal(buff[headSize:], c.msgs[seqNo-1:lastS-1])
@@ -146,13 +145,9 @@ func (c *Server) RequestLoop() {
 				log.Error("Res WriteToUDP", hc.remote, err)
 				break
 			}
-			i++
-			if i >= 10 {
-				i = 0
-				time.Sleep(time.Millisecond)
-			}
 			seqNo += uint64(msgCnt)
 			sHead.SeqNo = seqNo
+			time.Sleep(time.Microsecond * 100)
 		}
 		atomic.StoreInt32(&hc.running, 0)
 	}
@@ -273,6 +268,8 @@ func (c *Server) ServerLoop() {
 			head.MessageCnt = uint16(msgCnt)
 			mcastBuff(bLen)
 			seqNo += msgCnt
+			//time.Sleep(time.Microsecond * 10)
+			//runtime.Gosched()
 		}
 		c.seqNo = uint64(seqNo)
 		dur := time.Now().Sub(st)
