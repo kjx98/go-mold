@@ -1,8 +1,10 @@
 package MoldUDP
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestEncodeHead(t *testing.T) {
@@ -94,5 +96,32 @@ func BenchmarkDecodeHead(b *testing.B) {
 	var hh Header
 	for i := 0; i < b.N; i++ {
 		DecodeHead(headBytes[:], &hh)
+	}
+}
+
+func BenchmarkByteSRep(b *testing.B) {
+	var hh [1500]byte
+	for i := 0; i < b.N; i++ {
+		_ = bytes.Repeat(hh[:], 1)
+	}
+}
+
+func BenchmarkByteCopy(b *testing.B) {
+	var hh [1500]byte
+	for i := 0; i < b.N; i++ {
+		dd := make([]byte, 1500)
+		copy(dd, hh[:])
+	}
+}
+
+func BenchmarkSysSleep(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		time.Sleep(time.Microsecond * 10)
+	}
+}
+
+func BenchmarkSleep(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		Sleep(time.Microsecond * 10)
 	}
 }

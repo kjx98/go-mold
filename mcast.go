@@ -2,8 +2,10 @@ package MoldUDP
 
 import (
 	"net"
+	"runtime"
 	"strings"
 	"syscall"
+	"time"
 )
 
 func getIfAddr(ifn *net.Interface) (net.IP, error) {
@@ -24,6 +26,18 @@ func getIfAddr(ifn *net.Interface) (net.IP, error) {
 		}
 	}
 	return ret, nil
+}
+
+func Sleep(interv time.Duration) {
+	tt := time.Now()
+	for {
+		runtime.Gosched()
+		du := time.Now().Sub(tt)
+		if du < interv {
+			continue
+		}
+		break
+	}
 }
 
 func ReserveRecvBuf(fd int) {

@@ -1,7 +1,6 @@
 package MoldUDP
 
 import (
-	"bytes"
 	"errors"
 	"net"
 	"runtime"
@@ -198,7 +197,11 @@ func (c *ClientBase) gotBuff(n int) error {
 
 	var newBuf []byte
 	if nMsg != 0xffff && nMsg != 0 {
-		newBuf = bytes.Repeat(c.buff[headSize:n], 1)
+		if n == headSize {
+			return errMessageCnt
+		}
+		newBuf = make([]byte, n-headSize)
+		copy(newBuf, c.buff[headSize:n])
 	}
 	msgBB := msgBuf{seqNo: head.SeqNo, msgCnt: nMsg, dataBuf: newBuf}
 	c.ch <- msgBB

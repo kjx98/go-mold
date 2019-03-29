@@ -241,7 +241,7 @@ func (c *Server) ServerLoop() {
 			c.nSent++
 		}
 	}
-	nSleeps := 0
+
 	for c.Running {
 		st := time.Now()
 		seqNo := int(c.seqNo)
@@ -269,21 +269,7 @@ func (c *Server) ServerLoop() {
 			runtime.Gosched()
 			continue
 		}
-		mySleep := func(interv time.Duration) {
-			tt := time.Now()
-			for {
-				runtime.Gosched()
-				du := time.Now().Sub(tt)
-				if du < interv {
-					continue
-				}
-				if (nSleeps & 0xffff) == 0 {
-					log.Infof("mySleep %d actual %d", interv, du)
-				}
-				nSleeps++
-				break
-			}
-		}
+
 		for i := 0; i < c.PPms; i++ {
 			if seqNo > len(c.msgs) {
 				break
@@ -298,7 +284,7 @@ func (c *Server) ServerLoop() {
 			seqNo += msgCnt
 			//time.Sleep(time.Microsecond * 10)
 			//runtime.Gosched()
-			mySleep(time.Microsecond * 25)
+			Sleep(time.Microsecond * 25)
 		}
 		c.seqNo = uint64(seqNo)
 		dur := time.Now().Sub(st)
