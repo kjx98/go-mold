@@ -8,9 +8,9 @@ import (
 )
 
 const (
-	reqInterval    = 100 * time.Millisecond
+	reqInterval    = 20 * time.Millisecond
 	maxMessages    = 1024
-	cacheThreshold = 256 // start combine retrans
+	cacheThreshold = 512 // start combine retrans
 )
 
 // ClientBase struct for MoldUDP client

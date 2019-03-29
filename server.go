@@ -13,6 +13,7 @@ const (
 	maxUDPsize   = 1472
 	heartBeatInt = 2
 	maxGoes      = 512
+	maxWindow    = 60000
 	PPms         = 100 // packets per ms
 )
 
@@ -127,7 +128,7 @@ func (c *Server) RequestLoop() {
 
 		defer atomic.AddInt32(&c.nGoes, -1)
 		nResends++
-		if nResends%10 == 0 {
+		if (nResends & 127) == 0 {
 			log.Infof("Resend packets to %s Seq: %d -- %d", hc.remote.IP,
 				seqNo, hc.seqNext)
 		}
@@ -151,6 +152,7 @@ func (c *Server) RequestLoop() {
 		}
 		atomic.StoreInt32(&hc.running, 0)
 	}
+	lastLog := time.Now()
 	for c.Running {
 		n, remoteAddr, err := c.conn.ReadFromUDP(c.buff)
 		if err != nil {
@@ -187,12 +189,25 @@ func (c *Server) RequestLoop() {
 			if atomic.LoadInt32(&hc.running) == 0 {
 				hc.seqAcked = head.SeqNo
 			}
-			log.Info(rAddr, "in process retrans for", hc.seqAcked, hc.seqNext)
+			if time.Now().Sub(lastLog) >= time.Second {
+				log.Info(rAddr, "in process retrans for", hc.seqAcked, hc.seqNext)
+				lastLog = time.Now()
+			}
 		} else {
 			hc = new(hostControl)
 			hc.seqAcked = head.SeqNo
 			hc.remote = *remoteAddr
 			hostMap[rAddr] = hc
+		}
+		if head.SeqNo > hc.seqAcked {
+			hc.seqAcked = head.SeqNo
+		}
+		if seqNext > hc.seqAcked+maxWindow {
+			if time.Now().Sub(lastLog) >= time.Second*2 {
+				log.Info("%d exceed maxWindow seqNo: %d", seqNext, hc.seqAcked)
+				lastLog = time.Now()
+			}
+			continue
 		}
 		if atomic.LoadUint64(&hc.seqNext) < seqNext {
 			atomic.StoreUint64(&hc.seqNext, seqNext)
@@ -256,6 +271,25 @@ func (c *Server) ServerLoop() {
 			runtime.Gosched()
 			continue
 		}
+		nSleeps := 0
+		mySleep := func(interv time.Duration) {
+			tt := time.Now()
+			for {
+				runtime.Gosched()
+				du := time.Now().Sub(tt)
+				if du < interv {
+					continue
+				}
+				/*
+					if (nSleeps & 511) == 0 {
+						log.Infof("mySleep %d actual %d", interv.Nanoseconds(),
+							du.Nanoseconds())
+					}
+				*/
+				nSleeps++
+				break
+			}
+		}
 		for i := 0; i < c.PPms; i++ {
 			if seqNo > len(c.msgs) {
 				break
@@ -270,6 +304,7 @@ func (c *Server) ServerLoop() {
 			seqNo += msgCnt
 			//time.Sleep(time.Microsecond * 10)
 			//runtime.Gosched()
+			mySleep(time.Microsecond * 20)
 		}
 		c.seqNo = uint64(seqNo)
 		dur := time.Now().Sub(st)
