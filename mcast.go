@@ -116,3 +116,12 @@ func SetMulticastLoop(fd int, bLoop bool) error {
 	return syscall.SetsockoptInt(fd, syscall.IPPROTO_IP,
 		syscall.IP_MULTICAST_LOOP, iVal)
 }
+
+func SetBroadcast(fd int, bLoop bool) error {
+	var iVal = 0
+	if bLoop {
+		iVal = 1
+	}
+	return syscall.SetsockoptInt(fd, syscall.SOL_SOCKET,
+		syscall.SO_BROADCAST, iVal)
+}
