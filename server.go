@@ -295,9 +295,13 @@ func (c *Server) ServerLoop() {
 		c.seqNo = uint64(seqNo)
 		dur := time.Now().Sub(st)
 		// sleep to 1 ms
-		if dur < time.Microsecond*900 {
+		if dur < time.Microsecond*990 {
 			c.nSleep++
-			time.Sleep(time.Millisecond - dur)
+			if toSp := time.Millisecond - dur; toSp < time.Microsecond*100 {
+				Sleep(toSp)
+			} else {
+				time.Sleep(toSp)
+			}
 		}
 	}
 }
