@@ -8,5 +8,5 @@ sysctl -p
 # increase send udp buffer
 #sysctl -w net.unix.max_dgram_qlen=1024
 
-# increase send if tx qlen
-#ifconfig p1p1 txqueuelen 2000
+# increase send if tx qlen, 10k for no lost send or 2k with 500ns send interval
+#ifconfig p1p1 txqueuelen 10000

@@ -99,7 +99,13 @@ func BenchmarkDecodeHead(b *testing.B) {
 	}
 }
 
-func BenchmarkByteSRep(b *testing.B) {
+func BenchmarkUnmarshal(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		Unmarshal(msgBuf2)
+	}
+}
+
+func BenchmarkBytesRepeat(b *testing.B) {
 	var hh [1500]byte
 	for i := 0; i < b.N; i++ {
 		_ = bytes.Repeat(hh[:], 1)
@@ -111,6 +117,13 @@ func BenchmarkByteCopy(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		dd := make([]byte, 1500)
 		copy(dd, hh[:])
+	}
+}
+
+func BenchmarkAppend(b *testing.B) {
+	var hh [1500]byte
+	for i := 0; i < b.N; i++ {
+		_ = append([]byte{}, hh[:]...)
 	}
 }
 

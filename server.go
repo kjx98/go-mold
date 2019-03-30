@@ -80,6 +80,10 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, er
 	}
 	var fd int = -1
 	laddr := net.UDPAddr{IP: net.IPv4(0, 0, 0, 0), Port: port}
+	if bLoop {
+		// let system allc port
+		laddr.Port = 0
+	}
 	server.conn, err = net.ListenUDP("udp", &laddr)
 	if err != nil {
 		return nil, err
@@ -89,6 +93,7 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, er
 	} else {
 		log.Error("Get UDPConn fd", err)
 	}
+	log.Info("Server listen", server.conn.LocalAddr())
 	/*
 		if err := JoinMulticast(fd, server.dst.IP, ifn); err != nil {
 			log.Info("add multicast group", err)
@@ -148,7 +153,8 @@ func (c *Server) RequestLoop() {
 			}
 			seqNo += uint64(msgCnt)
 			sHead.SeqNo = seqNo
-			time.Sleep(time.Microsecond * 100)
+			// system Sleep delay 50us about, so about 100us sleep
+			time.Sleep(time.Microsecond * 50)
 		}
 		atomic.StoreInt32(&hc.running, 0)
 	}
@@ -284,7 +290,7 @@ func (c *Server) ServerLoop() {
 			seqNo += msgCnt
 			//time.Sleep(time.Microsecond * 10)
 			//runtime.Gosched()
-			Sleep(time.Microsecond * 25)
+			Sleep(time.Nanosecond * 500)
 		}
 		c.seqNo = uint64(seqNo)
 		dur := time.Now().Sub(st)

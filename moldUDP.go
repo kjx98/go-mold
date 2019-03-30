@@ -85,6 +85,11 @@ func Unmarshal(buff []byte) (ret []Message, err error) {
 		if off+ll > n {
 			return nil, errUnmarshal
 		}
+		/*
+			mess := Message{}
+			mess.Data = make([]byte, ll)
+			copy(mess.Data, buff[off:off+ll])
+		*/
 		mess := Message{Data: buff[off : off+ll]}
 		off += ll
 		ret = append(ret, mess)
