@@ -9,10 +9,10 @@ import (
 )
 
 const (
-	reqInterval    = 20 * time.Millisecond
-	maxMessages    = 1024
-	maxCache       = 0x10000
-	cacheThreshold = 256 // start combine retrans
+	reqInterval = 20 * time.Millisecond
+	maxMessages = 1024
+	maxCache    = 0x10000
+	nakWindow   = 65400
 )
 
 // ClientBase struct for MoldUDP client
@@ -36,6 +36,7 @@ type ClientBase struct {
 	ch               chan msgBuf
 	ready            []Message
 	cache            []*Message
+	//cacheS           []*Message
 }
 
 type msgBuf struct {
@@ -70,6 +71,7 @@ func (c *ClientBase) initClientBase(opt *Option) *net.Interface {
 	c.buff = make([]byte, 2048)
 	c.ch = make(chan msgBuf, 10000)
 	c.cache = make([]*Message, maxCache)
+	//c.cacheS = make([]*Message, maxCache)
 	return ifn
 }
 
@@ -80,7 +82,6 @@ var (
 )
 
 func (c *ClientBase) storeCache(buf []Message, seqNo uint64) uint64 {
-	// should deep copy buf
 	bLen := len(buf)
 	off := int(seqNo - c.seqNo)
 	bMerge := false
@@ -113,7 +114,7 @@ func (c *ClientBase) popCache(seqNo uint64) []Message {
 		}
 	}
 	if i == off {
-		res = nil
+		return nil
 	} else {
 		for j := off; j < i; j++ {
 			res = append(res, *c.cache[j])
@@ -121,6 +122,8 @@ func (c *ClientBase) popCache(seqNo uint64) []Message {
 	}
 	if i < len(c.cache) {
 		copy(c.cache, c.cache[i:])
+		// swap cache
+		//c.cache, c.cacheS = c.cacheS, c.cache
 	}
 	for j := len(c.cache) - i; j < len(c.cache); j++ {
 		c.cache[j] = nil
@@ -248,8 +251,8 @@ func (c *ClientBase) newReq(seqNo uint64) []byte {
 	c.reqLast = tt
 	seqF := c.seqNo
 	cnt := seqNo - seqF
-	if cnt > 60000 {
-		cnt = 60000
+	if cnt > nakWindow {
+		cnt = nakWindow
 	}
 	head := Header{Session: c.session, SeqNo: seqF}
 	head.MessageCnt = uint16(cnt)
