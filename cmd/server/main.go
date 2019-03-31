@@ -78,6 +78,9 @@ func main() {
 			msg.Data = ats.TickFX2Bytes(&eur[i])
 			msgs = append(msgs, msg)
 		}
+		for i := cnt - 3; i < cnt; i++ {
+			log.Info("Message", i, ":", eur[i])
+		}
 		log.Info("Loaded EURUSD ticks")
 	}
 	cc.FeedMessages(msgs)

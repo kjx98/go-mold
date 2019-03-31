@@ -60,9 +60,10 @@ func main() {
 	}()
 
 	//cc.Running = true
+	lastSeq := uint64(0)
 	go func() {
 		for cc.Running {
-			mess, err := cc.Read()
+			mess, lastS, err := cc.Read()
 			if err != nil {
 				log.Error("Client Read", err)
 				continue
@@ -73,6 +74,7 @@ func main() {
 			if len(mess) == 0 {
 				continue
 			}
+			lastSeq = lastS
 			if firstTic == nil {
 				log.Infof("Got first %d messages", len(mess))
 				firstTic = ats.Bytes2TickFX(mess[0].Data)
@@ -84,6 +86,8 @@ func main() {
 				lastTic = ats.Bytes2TickFX(mess[n-1].Data)
 				if lastTic != nil {
 					lTic = *lastTic
+				} else {
+					log.Errorf("last %d /%d Data is null", n, cc.SeqNo())
 				}
 			}
 		}
@@ -118,6 +122,8 @@ func main() {
 	if lastTic != nil {
 		log.Info("Last message:", lTic)
 	}
+	lastSeqN, lastN := cc.LastSeq()
+	log.Infof("Last Block seqNo: %d/%d number: %d", lastSeq, lastSeqN, lastN)
 	cc.DumpStats()
 	log.Info("exit client")
 	os.Exit(0)

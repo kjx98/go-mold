@@ -5,6 +5,7 @@ import (
 	"net"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -21,6 +22,7 @@ const (
 type ClientBase struct {
 	Running          bool
 	endSession       bool
+	bDone            bool
 	LastRecv         int64
 	seqNo            uint64
 	seqMax           uint64
@@ -28,6 +30,8 @@ type ClientBase struct {
 	nRecvs, nRequest int
 	nError, nMissed  int
 	nRepeats         int
+	lastSeq          uint64
+	lastN            int32
 	robinN           int
 	session          string
 	buff             []byte
@@ -122,6 +126,7 @@ func (c *ClientBase) popCache(seqNo uint64) []Message {
 	}
 	if i < len(c.cache) {
 		copy(c.cache, c.cache[i:])
+		//copy(c.cacheS, c.cache[i:])
 		// swap cache
 		//c.cache, c.cacheS = c.cacheS, c.cache
 	}
@@ -178,9 +183,10 @@ func (c *ClientBase) doMsgBuf(msgBB *msgBuf) ([]byte, error) {
 	if msgBB.msgCnt == 0xffff {
 		log.Info("Got endSession packet")
 		c.endSession = true
-		if c.seqNo >= c.seqMax {
-			log.Info("Got all messages seqNo:", c.seqNo, " stop running")
-			c.Running = false
+		if msgBB.seqNo == c.seqNo && c.seqNo >= c.seqMax {
+			log.Info("Got all messages seqNo:", c.seqNo, " to stop running")
+			//c.Running = false
+			c.bDone = true
 		}
 	}
 	seqNo := msgBB.seqNo
@@ -220,15 +226,21 @@ func (c *ClientBase) doMsgBuf(msgBB *msgBuf) ([]byte, error) {
 	if c.seqNo > seqNo {
 		res = res[int(c.seqNo-seqNo):]
 	}
-	c.seqNo += uint64(len(res))
+	seqNo = c.seqNo + uint64(len(res))
+	//c.seqNo += uint64(len(res))
+	// popCache used c.seqNo as base
 	// shall we check head cache to merge
-	if bb := c.popCache(c.seqNo); bb != nil {
+	if bb := c.popCache(seqNo); bb != nil {
 		res = append(res, bb...)
-		c.seqNo += uint64(len(bb))
+		seqNo += uint64(len(bb))
 	}
+	atomic.StoreUint64(&c.lastSeq, c.seqNo)
+	c.seqNo = seqNo
+	atomic.StoreInt32(&c.lastN, int32(c.seqNo-c.lastSeq))
 	if c.endSession && c.seqNo >= c.seqMax {
-		log.Info("Got all messages via retrans seqNo:", c.seqNo, " stop running")
-		c.Running = false
+		log.Info("Got all messages via retrans seqNo:", c.seqNo, " to stop running")
+		//c.Running = false
+		c.bDone = true
 	}
 	c.readLock.Lock()
 	c.ready = append(c.ready, res...)
@@ -266,22 +278,34 @@ func (c *ClientBase) newReq(seqNo uint64) []byte {
 // Read			Get []Message in order
 //	[]Message	messages received in order
 //	return   	nil,nil   for end of session or finished
-func (c *ClientBase) Read() ([]Message, error) {
+func (c *ClientBase) Read() ([]Message, uint64, error) {
 	for c.Running {
 		c.readLock.Lock()
 		res := c.ready
 		c.ready = nil
+		seqNo := atomic.LoadUint64(&c.lastSeq)
 		c.readLock.Unlock()
 		if res != nil {
-			return res, nil
+			if c.bDone && seqNo+uint64(len(res)) >= c.seqNo {
+				log.Info("Read all seqNo:", c.seqNo, " really stop running")
+				c.Running = false
+				//c.bDone = true
+			}
+			return res, seqNo, nil
 		}
 		runtime.Gosched()
 	}
-	return nil, nil
+	return nil, 0, nil
 }
 
-func (c *Client) SeqNo() int {
+func (c *ClientBase) SeqNo() int {
 	return int(c.seqNo)
+}
+
+func (c *ClientBase) LastSeq() (uint64, int) {
+	seqNo := atomic.LoadUint64(&c.lastSeq)
+	ret := atomic.LoadInt32(&c.lastN)
+	return seqNo, int(ret)
 }
 
 func (c *ClientBase) DumpStats() {
