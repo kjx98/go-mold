@@ -13,7 +13,7 @@ const (
 	maxUDPsize   = 1472
 	heartBeatInt = 2
 	maxGoes      = 512
-	maxWindow    = 60000
+	maxWindow    = 120000
 	PPms         = 100 // packets per ms
 )
 
@@ -290,7 +290,8 @@ func (c *Server) ServerLoop() {
 			seqNo += msgCnt
 			//time.Sleep(time.Microsecond * 10)
 			//runtime.Gosched()
-			Sleep(time.Nanosecond * 500)
+			// 500ns need tx qlen>=2000, 200ns need 5000
+			Sleep(time.Nanosecond * 250)
 		}
 		c.seqNo = uint64(seqNo)
 		dur := time.Now().Sub(st)
