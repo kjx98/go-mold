@@ -113,6 +113,7 @@ func (c *Client) requestLoop() {
 		case msgBB, ok := <-c.ch:
 			if ok {
 				if req, err := c.doMsgBuf(&msgBB); err != nil {
+					log.Error("doMsgBuf", err)
 				} else {
 					if req != nil {
 						// need send Request

@@ -114,7 +114,7 @@ func (c *ClientBase) popCache(seqNo uint64) []Message {
 		}
 	}
 	if i == off {
-		return nil
+		res = nil
 	} else {
 		for j := off; j < i; j++ {
 			res = append(res, *c.cache[j])
@@ -169,6 +169,7 @@ func (c *ClientBase) doMsgBuf(msgBB *msgBuf) ([]byte, error) {
 	if len(msgBB.dataBuf) > 0 {
 		if ret, err := Unmarshal(msgBB.dataBuf); err != nil {
 			c.nError++
+			//log.Error("Unmarshal msgBB", err)
 			return nil, err
 		} else {
 			res = ret
@@ -210,9 +211,7 @@ func (c *ClientBase) doMsgBuf(msgBB *msgBuf) ([]byte, error) {
 		// or heartbeat
 		if c.seqNo < seqNo {
 			reqBuf := c.newReq(seqNo)
-			if reqBuf != nil {
-				c.nMissed++
-			}
+			c.nMissed++
 			return reqBuf, nil
 		}
 		return nil, nil
