@@ -1,16 +1,18 @@
 package MoldUDP
 
 import (
+	"errors"
 	"net"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
+	"unsafe"
 )
 
 //#cgo LDFLAGS: -ldl
 //#include <sys/types.h>          /* See NOTES */
 //#include <sys/socket.h>
+//#include <netinet/in.h>
 import "C"
 
 func getIfAddr(ifn *net.Interface) (net.IP, error) {
@@ -45,53 +47,98 @@ func Sleep(interv time.Duration) {
 	}
 }
 
+var (
+	errGetsockopt = errors.New("getsockopt error")
+	errSetsockopt = errors.New("setsockopt error")
+	errSocket     = errors.New("socket error")
+	errBind       = errors.New("bind error")
+)
+
+func GetsockoptInt(fd, level, opt int) (value int, err error) {
+	optLen := C.uint(unsafe.Sizeof(value))
+	ret := C.getsockopt(C.int(fd), C.int(level), C.int(opt),
+		unsafe.Pointer(&value), &optLen)
+	if ret != 0 {
+		err = errGetsockopt
+	}
+	return
+}
+
+func SetsockoptInt(fd, level, opt, val int) error {
+	optLen := C.uint(unsafe.Sizeof(val))
+	ret := C.setsockopt(C.int(fd), C.int(level), C.int(opt),
+		unsafe.Pointer(&val), optLen)
+	if ret != 0 {
+		return errSetsockopt
+	}
+	return nil
+}
+
+func Socket(domain, typ, proto int) (fd int, err error) {
+	fd = int(C.socket(C.int(domain), C.int(typ), C.int(proto)))
+	if fd < 0 {
+		err = errSocket
+	}
+	return
+}
+
+func MyBind(fd int, port int) (err error) {
+	saddr := C.struct_sockaddr_in{}
+	saddr.sin_family = C.AF_INET
+	saddr.sin_port = C.htons(C.ushort(port))
+	ret := C.bind(C.int(fd), (*C.struct_sockaddr)(unsafe.Pointer(&saddr)),
+		C.socklen_t(unsafe.Sizeof(saddr)))
+	if ret < 0 {
+		err = errBind
+	}
+	return
+}
+
 func ReserveRecvBuf(fd int) {
 	bLen := 4 * 1024 * 1024
-	if bl, err := syscall.GetsockoptInt(fd, syscall.SOL_SOCKET,
-		syscall.SO_RCVBUF); err == nil {
+	if bl, err := GetsockoptInt(fd, C.SOL_SOCKET, C.SO_RCVBUF); err == nil {
 		log.Infof("Socket RCVBUF is %d Kb", bl/1024)
 	}
 	log.Infof("Try set Socket RcvBuf to %d KB", bLen/1024)
-	if err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_RCVBUF,
-		bLen); err != nil {
+	if err := SetsockoptInt(fd, C.SOL_SOCKET, C.SO_RCVBUF, bLen); err != nil {
 		log.Error("SetsockoptInt, SO_RCVBUF", err)
 	}
-	if bl, err := syscall.GetsockoptInt(fd, syscall.SOL_SOCKET,
-		syscall.SO_RCVBUF); err == nil {
+	if bl, err := GetsockoptInt(fd, C.SOL_SOCKET, C.SO_RCVBUF); err == nil {
 		log.Infof("Socket RCVBUF is %d Kb", bl/1024)
 	}
 }
 
 func ReserveSendBuf(fd int) {
 	bLen := 2 * 1024 * 1024
-	if bl, err := syscall.GetsockoptInt(fd, syscall.SOL_SOCKET,
-		syscall.SO_SNDBUF); err == nil {
+	if bl, err := GetsockoptInt(fd, C.SOL_SOCKET, C.SO_SNDBUF); err == nil {
 		log.Infof("Socket SNDBUF is %d Kb", bl/1024)
 	}
 	log.Infof("Try set Socket RcvBuf to %d KB", bLen/1024)
-	if err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_SNDBUF,
-		bLen); err != nil {
+	if err := SetsockoptInt(fd, C.SOL_SOCKET, C.SO_SNDBUF, bLen); err != nil {
 		log.Error("SetsockoptInt, SO_SNDBUF", err)
 	}
-	if bl, err := syscall.GetsockoptInt(fd, syscall.SOL_SOCKET,
-		syscall.SO_SNDBUF); err == nil {
+	if bl, err := GetsockoptInt(fd, C.SOL_SOCKET, C.SO_SNDBUF); err == nil {
 		log.Infof("Socket SNDBUF is %d Kb", bl/1024)
 	}
 }
 
 //加入组播域
-func JoinMulticast(fd int, maddr net.IP, ifn *net.Interface) error {
-	var mreq = &syscall.IPMreq{}
-	copy(mreq.Multiaddr[:], maddr.To4())
+func JoinMulticast(fd int, maddr []byte, ifn *net.Interface) error {
+	var mreq = [8]byte{}
+	copy(mreq[:4], maddr)
 	if ifn != nil {
 		if adr, err := getIfAddr(ifn); err == nil {
-			copy(mreq.Interface[:], adr.To4())
+			copy(mreq[4:], adr.To4())
 			log.Infof("Use %s for Multicast interface", adr)
 		}
 	}
-	err := syscall.SetsockoptIPMreq(fd, syscall.IPPROTO_IP,
-		syscall.IP_ADD_MEMBERSHIP, mreq)
-	return err
+	optLen := C.uint(unsafe.Sizeof(mreq))
+	res := C.setsockopt(C.int(fd), C.IPPROTO_IP, C.IP_ADD_MEMBERSHIP,
+		unsafe.Pointer(&mreq), optLen)
+	if res != 0 {
+		return errSetsockopt
+	}
+	return nil
 }
 
 func SetMulticastInterface(fd int, ifn *net.Interface) error {
@@ -107,27 +154,27 @@ func SetMulticastInterface(fd int, ifn *net.Interface) error {
 		copy(sVal[:], ifAddr.To4())
 		log.Info("Set out Multicast interface to", ifAddr)
 	}
-	/*
-		err := syscall.SetsockoptString(fd, syscall.IPPROTO_IP,
-			syscall.IP_MULTICAST_IF, sVal)
-	*/
-	err := syscall.SetsockoptInet4Addr(fd, syscall.IPPROTO_IP,
-		syscall.IP_MULTICAST_IF, sVal)
-	return err
+	optLen := C.uint(unsafe.Sizeof(sVal))
+	res := C.setsockopt(C.int(fd), C.IPPROTO_IP, C.IP_MULTICAST_IF,
+		unsafe.Pointer(&sVal), optLen)
+	if res != 0 {
+		return errSetsockopt
+	}
+	return nil
 }
 
 //退出组播域
 func ExitMulticast(fd int, maddr net.IP) {
-	var mreq = &syscall.IPMreq{}
-	copy(mreq.Multiaddr[:], maddr.To4())
-	syscall.SetsockoptIPMreq(fd, syscall.IPPROTO_IP,
-		syscall.IP_DROP_MEMBERSHIP, mreq)
+	var mreq = [8]byte{}
+	optLen := C.uint(unsafe.Sizeof(mreq))
+	copy(mreq[:4], maddr.To4())
+	C.setsockopt(C.int(fd), C.IPPROTO_IP, C.IP_DROP_MEMBERSHIP,
+		unsafe.Pointer(&mreq), optLen)
 }
 
 //设置路由的TTL值
 func SetMulticastTTL(fd, ttl int) error {
-	return syscall.SetsockoptInt(fd, syscall.IPPROTO_IP,
-		syscall.IP_MULTICAST_TTL, ttl)
+	return SetsockoptInt(fd, C.IPPROTO_IP, C.IP_MULTICAST_TTL, ttl)
 }
 
 func SetMulticastLoop(fd int, bLoop bool) error {
@@ -135,8 +182,7 @@ func SetMulticastLoop(fd int, bLoop bool) error {
 	if bLoop {
 		iVal = 1
 	}
-	return syscall.SetsockoptInt(fd, syscall.IPPROTO_IP,
-		syscall.IP_MULTICAST_LOOP, iVal)
+	return SetsockoptInt(fd, C.IPPROTO_IP, C.IP_MULTICAST_LOOP, iVal)
 }
 
 func SetBroadcast(fd int, bLoop bool) error {
@@ -144,6 +190,5 @@ func SetBroadcast(fd int, bLoop bool) error {
 	if bLoop {
 		iVal = 1
 	}
-	return syscall.SetsockoptInt(fd, syscall.SOL_SOCKET,
-		syscall.SO_BROADCAST, iVal)
+	return SetsockoptInt(fd, C.SOL_SOCKET, C.SO_BROADCAST, iVal)
 }

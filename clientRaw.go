@@ -45,34 +45,22 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 			client.dst[3] = 1
 		}
 	}
-	client.fd, err = syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
+	client.fd, err = Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
 	if err != nil {
 		return nil, err
 	}
 
 	ReserveRecvBuf(client.fd)
-	syscall.SetsockoptInt(client.fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-	// set Multicast
-	err = syscall.Bind(client.fd, &syscall.SockaddrInet4{Port: port})
+	SetsockoptInt(client.fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+	//err = Bind(client.fd, &syscall.SockaddrInet4{Port: port})
+	err = MyBind(client.fd, port)
 	if err != nil {
 		syscall.Close(client.fd)
 		log.Error("syscall.Bind", err)
 		return nil, err
 	}
-	var mreq = &syscall.IPMreq{Multiaddr: client.dst}
-	if ifn != nil {
-		if addrs, err := ifn.Addrs(); err != nil {
-			log.Info("Get if Addr", err)
-		} else if len(addrs) > 0 {
-			adr := strings.Split(addrs[0].String(), "/")[0]
-			log.Infof("Try %s for MC group", adr)
-			if ifAddr := net.ParseIP(adr); ifAddr != nil {
-				copy(mreq.Interface[:], ifAddr.To4())
-				log.Info("Use", adr, "for Multicast interface")
-			}
-		}
-	}
-	err = syscall.SetsockoptIPMreq(client.fd, syscall.IPPROTO_IP, syscall.IP_ADD_MEMBERSHIP, mreq)
+	// set Multicast
+	err = JoinMulticast(client.fd, client.dst[:], ifn)
 	if err != nil {
 		log.Info("add multi group", err)
 	}
