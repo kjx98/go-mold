@@ -12,7 +12,7 @@ import (
 const (
 	reqInterval = 20 * time.Millisecond
 	maxMessages = 1024
-	maxCache    = 0x10000
+	maxCache    = 0x20000
 	nakWindow   = 65400
 )
 
@@ -187,6 +187,9 @@ func (c *ClientBase) doMsgBuf(msgBB *msgBuf) ([]byte, error) {
 			log.Info("Got all messages seqNo:", c.seqNo, " to stop running")
 			//c.Running = false
 			c.bDone = true
+			if c.ready == nil {
+				c.Running = false
+			}
 		}
 	}
 	seqNo := msgBB.seqNo
@@ -285,12 +288,12 @@ func (c *ClientBase) Read() ([]Message, uint64, error) {
 		c.ready = nil
 		seqNo := atomic.LoadUint64(&c.lastSeq)
 		c.readLock.Unlock()
+		if c.bDone && seqNo+uint64(len(res)) >= c.seqNo {
+			log.Info("Read all seqNo:", c.seqNo, " really stop running")
+			c.Running = false
+			//c.bDone = true
+		}
 		if res != nil {
-			if c.bDone && seqNo+uint64(len(res)) >= c.seqNo {
-				log.Info("Read all seqNo:", c.seqNo, " really stop running")
-				c.Running = false
-				//c.bDone = true
-			}
 			return res, seqNo, nil
 		}
 		runtime.Gosched()

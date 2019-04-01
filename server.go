@@ -154,6 +154,7 @@ func (c *Server) RequestLoop() {
 			seqNo += uint64(msgCnt)
 			sHead.SeqNo = seqNo
 			// system Sleep delay 50us about, so about 100us sleep
+			// or changed to Sleep 50us
 			time.Sleep(time.Microsecond * 50)
 		}
 		atomic.StoreInt32(&hc.running, 0)
@@ -271,6 +272,7 @@ func (c *Server) ServerLoop() {
 				head.SeqNo = c.seqNo
 				head.MessageCnt = 0xffff
 				mcastBuff(0)
+				log.Info("All messages sent, end Session")
 			}
 			runtime.Gosched()
 			continue
@@ -291,7 +293,8 @@ func (c *Server) ServerLoop() {
 			//time.Sleep(time.Microsecond * 10)
 			//runtime.Gosched()
 			// 500ns need tx qlen>=2000, 200ns need 5000
-			Sleep(time.Nanosecond * 250)
+			//Sleep(time.Nanosecond * 250)
+			Sleep(time.Microsecond * 5)
 		}
 		c.seqNo = uint64(seqNo)
 		dur := time.Now().Sub(st)
