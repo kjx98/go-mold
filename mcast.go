@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+//#cgo LDFLAGS: -ldl
+//#include <sys/types.h>          /* See NOTES */
+//#include <sys/socket.h>
+import "C"
+
 func getIfAddr(ifn *net.Interface) (net.IP, error) {
 	ret := net.IPv4zero
 	if ifn == nil {

@@ -157,6 +157,13 @@ func (c *Server) RequestLoop() {
 			// or changed to Sleep 50us
 			time.Sleep(time.Microsecond * 50)
 		}
+		if c.endSession && int(seqNo) == len(c.msgs) {
+			// send endSession as well
+			sHead.MessageCnt = 0xffff
+			if err := EncodeHead(buff[:headSize], &sHead); err == nil {
+				_, err = c.conn.WriteToUDP(buff[:headSize], &hc.remote)
+			}
+		}
 		atomic.StoreInt32(&hc.running, 0)
 	}
 	lastLog := time.Now()
