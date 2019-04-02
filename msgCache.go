@@ -9,8 +9,9 @@ const (
 type msgPage [maxPageMsg]*Message
 
 type msgCache struct {
-	nPage    int
-	msgPages []msgPage
+	nPage     int
+	maxPageNo int
+	msgPages  []msgPage
 }
 
 func (mc *msgCache) Init() {
@@ -29,6 +30,9 @@ func (mc *msgCache) Upset(seqNo uint64, msg *Message) bool {
 			mc.msgPages = append(mc.msgPages, msgPP...)
 			mc.nPage += pageIncrement
 		}
+	}
+	if page > mc.maxPageNo {
+		mc.maxPageNo = page
 	}
 	ret := mc.msgPages[page][off] != nil
 	mc.msgPages[page][off] = msg

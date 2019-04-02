@@ -281,5 +281,5 @@ func (c *ClientBase) LastSeq() (uint64, int) {
 func (c *ClientBase) DumpStats() {
 	log.Infof("Total Recv:%d seqNo: %d, error: %d, missed: %d, Request: %d/%d"+
 		"\nmaxCache: %d, cache merge: %d", c.nRecvs, c.seqNo, c.nError,
-		c.nMissed, c.nRequest, c.nRepeats, c.cache.nPage, c.nMerges)
+		c.nMissed, c.nRequest, c.nRepeats, c.cache.maxPageNo, c.nMerges)
 }
