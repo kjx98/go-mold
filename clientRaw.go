@@ -18,7 +18,7 @@ type Client struct {
 	dst    [4]byte
 	port   int
 	fd     int
-	reqSrv []syscall.SockaddrInet4
+	reqSrv []SockaddrInet4
 
 	ClientBase
 }
@@ -27,7 +27,7 @@ func (c *Client) Close() error {
 	if c.fd < 0 {
 		return errClosed
 	}
-	err := syscall.Close(c.fd)
+	err := Close(c.fd)
 	c.fd = -1
 	return err
 }
@@ -53,9 +53,9 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 	ReserveRecvBuf(client.fd)
 	SetsockoptInt(client.fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 	//err = Bind(client.fd, &syscall.SockaddrInet4{Port: port})
-	err = MyBind(client.fd, port)
+	err = Bind(client.fd, &SockaddrInet4{Port: port})
 	if err != nil {
-		syscall.Close(client.fd)
+		Close(client.fd)
 		log.Error("syscall.Bind", err)
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 		if srvAddr := net.ParseIP(ss[0]); srvAddr == nil {
 			continue
 		} else {
-			udpA := syscall.SockaddrInet4{}
+			udpA := SockaddrInet4{}
 			copy(udpA.Addr[:], srvAddr.To4())
 			if len(ss) == 1 {
 				udpA.Port = port
@@ -116,7 +116,7 @@ func (c *Client) requestLoop() {
 
 func (c *Client) doMsgLoop() {
 	for c.Running {
-		n, remoteAddr, err := syscall.Recvfrom(c.fd, c.buff, 0)
+		n, remoteAddr, err := Recvfrom(c.fd, c.buff, 0)
 		if err != nil {
 			log.Error("ReadFromUDP from", remoteAddr, " ", err)
 			continue
@@ -127,9 +127,7 @@ func (c *Client) doMsgLoop() {
 		} else {
 			if len(c.reqSrv) == 0 {
 				// try add source as Request server
-				if adr, ok := remoteAddr.(*syscall.SockaddrInet4); ok {
-					c.reqSrv = append(c.reqSrv, *adr)
-				}
+				c.reqSrv = append(c.reqSrv, *remoteAddr)
 			}
 		}
 	}
@@ -144,7 +142,7 @@ func (c *Client) request(buff []byte) {
 	if c.nRequest < 5 {
 		log.Info("Send reTrans seq:", c.seqNo, " req to", adr.Addr, adr.Port)
 	}
-	if err := syscall.Sendto(c.fd, buff, 0, adr); err != nil {
+	if err := Sendto(c.fd, buff, 0, adr); err != nil {
 		log.Error("Req Sendto", err)
 	}
 	c.robinN++

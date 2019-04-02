@@ -1,10 +1,10 @@
 package MoldUDP
 
 import (
-	"errors"
 	"net"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 	"unsafe"
 )
@@ -13,6 +13,22 @@ import (
 //#include <sys/types.h>          /* See NOTES */
 //#include <sys/socket.h>
 //#include <netinet/in.h>
+//#include <unistd.h>
+//#include <string.h>
+//#include <errno.h>
+/*
+int inline errNo() { return errno; }
+
+inline newSockaddrIn(int port, const void *addr, struct sockaddr_in *saddr) {
+	saddr->sin_family = AF_INET;
+	saddr->sin_port = htons(port);
+	memcpy(& saddr->sin_addr, addr, 4);
+}
+
+inline copyAddr(struct sockaddr_in *addr, void *dstAddr) {
+	memcpy(dstAddr, &addr->sin_addr, 4);
+}
+*/
 import "C"
 
 func getIfAddr(ifn *net.Interface) (net.IP, error) {
@@ -47,29 +63,22 @@ func Sleep(interv time.Duration) {
 	}
 }
 
-var (
-	errGetsockopt = errors.New("getsockopt error")
-	errSetsockopt = errors.New("setsockopt error")
-	errSocket     = errors.New("socket error")
-	errBind       = errors.New("bind error")
-)
-
 func GetsockoptInt(fd, level, opt int) (value int, err error) {
 	optLen := C.uint(unsafe.Sizeof(value))
 	ret := C.getsockopt(C.int(fd), C.int(level), C.int(opt),
 		unsafe.Pointer(&value), &optLen)
 	if ret != 0 {
-		err = errGetsockopt
+		err = syscall.Errno(C.errNo())
 	}
 	return
 }
 
-func SetsockoptInt(fd, level, opt, val int) error {
+func SetsockoptInt(fd, level, opt, val int) (err error) {
 	optLen := C.uint(unsafe.Sizeof(val))
 	ret := C.setsockopt(C.int(fd), C.int(level), C.int(opt),
 		unsafe.Pointer(&val), optLen)
 	if ret != 0 {
-		return errSetsockopt
+		err = syscall.Errno(C.errNo())
 	}
 	return nil
 }
@@ -77,19 +86,60 @@ func SetsockoptInt(fd, level, opt, val int) error {
 func Socket(domain, typ, proto int) (fd int, err error) {
 	fd = int(C.socket(C.int(domain), C.int(typ), C.int(proto)))
 	if fd < 0 {
-		err = errSocket
+		err = syscall.Errno(C.errNo())
 	}
 	return
 }
 
-func MyBind(fd int, port int) (err error) {
+func Close(fd int) (err error) {
+	ret := C.close(C.int(fd))
+	if ret < 0 {
+		err = syscall.Errno(C.errNo())
+	}
+	return
+}
+
+type SockaddrInet4 struct {
+	Port int
+	Addr [4]byte
+}
+
+func Bind(fd int, laddr *SockaddrInet4) (err error) {
 	saddr := C.struct_sockaddr_in{}
-	saddr.sin_family = C.AF_INET
-	saddr.sin_port = C.htons(C.ushort(port))
+	C.newSockaddrIn(C.int(laddr.Port), unsafe.Pointer(&laddr.Addr[0]), &saddr)
+	//saddr.sin_family = C.AF_INET
+	//saddr.sin_port = C.htons(C.ushort(port))
 	ret := C.bind(C.int(fd), (*C.struct_sockaddr)(unsafe.Pointer(&saddr)),
 		C.socklen_t(unsafe.Sizeof(saddr)))
 	if ret < 0 {
-		err = errBind
+		err = syscall.Errno(C.errNo())
+	}
+	return
+}
+
+func Recvfrom(fd int, p []byte, flags int) (n int, from *SockaddrInet4, err error) {
+	raddr := C.struct_sockaddr_in{}
+	raddrLen := C.socklen_t(unsafe.Sizeof(raddr))
+	ret := C.recvfrom(C.int(fd), unsafe.Pointer(&p[0]), C.size_t(len(p)),
+		C.int(flags), (*C.struct_sockaddr)(unsafe.Pointer(&raddr)), &raddrLen)
+	if ret < 0 {
+		err = syscall.Errno(C.errNo())
+	} else {
+		n = int(ret)
+	}
+	from = &SockaddrInet4{Port: int(C.ntohs(raddr.sin_port))}
+	C.copyAddr(&raddr, unsafe.Pointer(&from.Addr[0]))
+	return
+}
+
+func Sendto(fd int, p []byte, flags int, to *SockaddrInet4) (err error) {
+	taddr := C.struct_sockaddr_in{}
+	C.newSockaddrIn(C.int(to.Port), unsafe.Pointer(&to.Addr[0]), &taddr)
+	ret := C.sendto(C.int(fd), unsafe.Pointer(&p[0]), C.size_t(len(p)),
+		C.int(flags), (*C.struct_sockaddr)(unsafe.Pointer(&taddr)),
+		C.uint(unsafe.Sizeof(taddr)))
+	if ret < 0 {
+		err = syscall.Errno(C.errNo())
 	}
 	return
 }
@@ -123,7 +173,7 @@ func ReserveSendBuf(fd int) {
 }
 
 //加入组播域
-func JoinMulticast(fd int, maddr []byte, ifn *net.Interface) error {
+func JoinMulticast(fd int, maddr []byte, ifn *net.Interface) (err error) {
 	var mreq = [8]byte{}
 	copy(mreq[:4], maddr)
 	if ifn != nil {
@@ -136,12 +186,12 @@ func JoinMulticast(fd int, maddr []byte, ifn *net.Interface) error {
 	res := C.setsockopt(C.int(fd), C.IPPROTO_IP, C.IP_ADD_MEMBERSHIP,
 		unsafe.Pointer(&mreq), optLen)
 	if res != 0 {
-		return errSetsockopt
+		err = syscall.Errno(C.errNo())
 	}
 	return nil
 }
 
-func SetMulticastInterface(fd int, ifn *net.Interface) error {
+func SetMulticastInterface(fd int, ifn *net.Interface) (err error) {
 	var sVal [4]byte
 	//var sVal string
 	if ifn == nil {
@@ -158,7 +208,7 @@ func SetMulticastInterface(fd int, ifn *net.Interface) error {
 	res := C.setsockopt(C.int(fd), C.IPPROTO_IP, C.IP_MULTICAST_IF,
 		unsafe.Pointer(&sVal), optLen)
 	if res != 0 {
-		return errSetsockopt
+		err = syscall.Errno(C.errNo())
 	}
 	return nil
 }
