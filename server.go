@@ -157,17 +157,21 @@ func (c *Server) RequestLoop() {
 			// or changed to Sleep 50us
 			time.Sleep(time.Microsecond * 50)
 		}
-		if c.endSession && int(seqNo) == len(c.msgs) {
-			sHead.SeqNo = seqNo
-			// send endSession as well
-			sHead.MessageCnt = 0xffff
-			log.Info("Retrans endSession, seqNo:", seqNo)
-			if err := EncodeHead(buff[:headSize], &sHead); err == nil {
-				_, err = c.conn.WriteToUDP(buff[:headSize], &hc.remote)
-			} else {
-				log.Error("EncodeHead for proccess reTrans endSession", err)
+		// ony recover lost last packet and endSession
+		// using endSession Hearbeat packet to indicate endSession
+		/*
+			if c.endSession && int(seqNo) == len(c.msgs) {
+				sHead.SeqNo = seqNo
+				// send endSession as well
+				sHead.MessageCnt = 0xffff
+				log.Info("Retrans endSession, seqNo:", seqNo)
+				if err := EncodeHead(buff[:headSize], &sHead); err == nil {
+					_, err = c.conn.WriteToUDP(buff[:headSize], &hc.remote)
+				} else {
+					log.Error("EncodeHead for proccess reTrans endSession", err)
+				}
 			}
-		}
+		*/
 		atomic.StoreInt32(&hc.running, 0)
 	}
 	lastLog := time.Now()
