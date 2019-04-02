@@ -148,8 +148,10 @@ func (c *ClientBase) doMsgBuf(msgBB *msgBuf) ([]byte, error) {
 		}
 	}
 	if msgBB.msgCnt == 0xffff {
-		log.Info("Got endSession packet")
-		c.endSession = true
+		if !c.endSession {
+			log.Info("Got endSession packet")
+			c.endSession = true
+		}
 		if msgBB.seqNo == c.seqNo && c.seqNo >= c.seqMax {
 			log.Info("Got all messages seqNo:", c.seqNo, " to stop running")
 			//c.Running = false
@@ -167,13 +169,12 @@ func (c *ClientBase) doMsgBuf(msgBB *msgBuf) ([]byte, error) {
 			return nil, errMessageCnt
 		}
 		seqNext := seqNo + uint64(msgCnt)
-		if seqNext < c.seqNo {
+		if seqF := c.seqNo; seqNext < seqF {
 			// already got
 			c.nRepeats++
 			return nil, nil
-		}
-		// cache or not for MessageCnt not 0, 0xffff
-		if seqF := c.seqNo; seqNo > seqF {
+		} else if seqNo > seqF {
+			// cache or not for MessageCnt not 0, 0xffff
 			seqNo = c.storeCache(res, seqNo)
 			if seqNo <= seqF {
 				return nil, nil
@@ -279,7 +280,7 @@ func (c *ClientBase) LastSeq() (uint64, int) {
 }
 
 func (c *ClientBase) DumpStats() {
-	log.Infof("Total Recv:%d seqNo: %d, error: %d, missed: %d, Request: %d/%d"+
-		"\nmaxCache: %d, cache merge: %d", c.nRecvs, c.seqNo, c.nError,
+	log.Infof("Total Recv:%d seqNo: %d/%d,error: %d,missed: %d, Request: %d/%d"+
+		"\nmaxCache: %d, cache merge: %d", c.nRecvs, c.seqNo, c.seqMax, c.nError,
 		c.nMissed, c.nRequest, c.nRepeats, c.cache.maxPageNo, c.nMerges)
 }

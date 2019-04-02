@@ -25,7 +25,7 @@ func (mc *msgCache) Upset(seqNo uint64, msg *Message) bool {
 	page := int(seqNo >> pageShift)
 	off := int(seqNo & (maxPageMsg - 1))
 	if page >= mc.nPage {
-		for page > mc.nPage {
+		for page >= mc.nPage {
 			msgPP := make([]msgPage, pageIncrement)
 			mc.msgPages = append(mc.msgPages, msgPP...)
 			mc.nPage += pageIncrement
