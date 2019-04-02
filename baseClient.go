@@ -12,7 +12,6 @@ import (
 const (
 	reqInterval = 100 * time.Millisecond
 	maxMessages = 1024
-	maxCache    = 0x10000
 	nakWindow   = 65400
 )
 
@@ -39,8 +38,7 @@ type ClientBase struct {
 	readLock         sync.RWMutex
 	ch               chan msgBuf
 	ready            []Message
-	cache            []*Message
-	//cacheS           []*Message
+	cache            msgCache
 }
 
 type msgBuf struct {
@@ -74,8 +72,7 @@ func (c *ClientBase) initClientBase(opt *Option) *net.Interface {
 	}
 	c.buff = make([]byte, 2048)
 	c.ch = make(chan msgBuf, 10000)
-	c.cache = make([]*Message, maxCache)
-	//c.cacheS = make([]*Message, maxCache)
+	c.cache.Init()
 	return ifn
 }
 
@@ -87,53 +84,23 @@ var (
 
 func (c *ClientBase) storeCache(buf []Message, seqNo uint64) uint64 {
 	bLen := len(buf)
-	off := int(seqNo - c.seqNo)
 	bMerge := false
+	ret := seqNo
 	for i := 0; i < bLen; i++ {
-		if off+i >= maxCache {
-			break
-		}
-		if c.cache[off+i] != nil {
+		if c.cache.Upset(seqNo, &buf[i]) {
 			bMerge = true
 		}
-		c.cache[off+i] = &buf[i]
+		seqNo++
 	}
 	if bMerge {
 		c.nMerges++
 		return 0
 	}
-	return seqNo
+	return ret
 }
 
 func (c *ClientBase) popCache(seqNo uint64) []Message {
-	if len(c.cache) == 0 {
-		return nil
-	}
-	var i int
-	off := int(seqNo - c.seqNo)
-	res := []Message{}
-	for i = off; i < len(c.cache); i++ {
-		if c.cache[i] == nil {
-			break
-		}
-	}
-	if i == off {
-		res = nil
-	} else {
-		for j := off; j < i; j++ {
-			res = append(res, *c.cache[j])
-		}
-	}
-	if i < len(c.cache) {
-		copy(c.cache, c.cache[i:])
-		//copy(c.cacheS, c.cache[i:])
-		// swap cache
-		//c.cache, c.cacheS = c.cacheS, c.cache
-	}
-	for j := len(c.cache) - i; j < len(c.cache); j++ {
-		c.cache[j] = nil
-	}
-	return res
+	return c.cache.Merge(seqNo)
 }
 
 func (c *ClientBase) gotBuff(n int) error {
@@ -314,5 +281,5 @@ func (c *ClientBase) LastSeq() (uint64, int) {
 func (c *ClientBase) DumpStats() {
 	log.Infof("Total Recv:%d seqNo: %d, error: %d, missed: %d, Request: %d/%d"+
 		"\nmaxCache: %d, cache merge: %d", c.nRecvs, c.seqNo, c.nError,
-		c.nMissed, c.nRequest, c.nRepeats, maxCache, c.nMerges)
+		c.nMissed, c.nRequest, c.nRepeats, c.cache.nPage, c.nMerges)
 }
