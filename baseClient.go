@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	reqInterval = 20 * time.Millisecond
+	reqInterval = 100 * time.Millisecond
 	maxMessages = 1024
 	maxCache    = 0x10000
 	nakWindow   = 65400

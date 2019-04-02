@@ -85,7 +85,8 @@ func SetsockoptInt(fd, level, opt, val int) (err error) {
 }
 
 func Socket(domain, typ, proto int) (fd int, err error) {
-	fd = int(C.socket(C.int(domain), C.int(typ), C.int(proto)))
+	//fd = int(C.socket(C.int(domain), C.int(typ), C.int(proto)))
+	fd = int(C.socket(C.int(domain), C.int(typ)|C.SOCK_NONBLOCK, C.int(proto)))
 	if fd < 0 {
 		err = syscall.Errno(C.errNo())
 	}
@@ -124,7 +125,10 @@ func Recvfrom(fd int, p []byte, flags int) (n int, from *SockaddrInet4, err erro
 	ret := C.recvfrom(C.int(fd), unsafe.Pointer(&p[0]), C.size_t(len(p)),
 		C.int(flags), (*C.struct_sockaddr)(unsafe.Pointer(&raddr)), &raddrLen)
 	if ret < 0 {
-		err = syscall.Errno(C.errNo())
+		errN := C.errNo()
+		if errN != 0 && errN != C.EAGAIN && errN != C.EWOULDBLOCK {
+			err = syscall.Errno(C.errNo())
+		}
 	} else {
 		n = int(ret)
 	}
@@ -140,7 +144,10 @@ func Sendto(fd int, p []byte, flags int, to *SockaddrInet4) (err error) {
 		C.int(flags), (*C.struct_sockaddr)(unsafe.Pointer(&taddr)),
 		C.uint(unsafe.Sizeof(taddr)))
 	if ret < 0 {
-		err = syscall.Errno(C.errNo())
+		errN := C.errNo()
+		if errN != 0 && errN != C.EAGAIN && errN != C.EWOULDBLOCK {
+			err = syscall.Errno(C.errNo())
+		}
 	}
 	return
 }

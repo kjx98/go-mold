@@ -121,6 +121,9 @@ func (c *Client) doMsgLoop() {
 			log.Error("ReadFromUDP from", remoteAddr, " ", err)
 			continue
 		}
+		if n <= 0 {
+			continue
+		}
 		if err := c.ClientBase.gotBuff(n); err != nil {
 			log.Error("Packet from", remoteAddr, " error:", err)
 			continue
