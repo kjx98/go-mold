@@ -19,13 +19,14 @@ import (
 /*
 int inline errNo() { return errno; }
 
-inline newSockaddrIn(int port, const void *addr, struct sockaddr_in *saddr) {
+inline void newSockaddrIn(int port, const void *addr, struct sockaddr_in *saddr)
+{
 	saddr->sin_family = AF_INET;
 	saddr->sin_port = htons(port);
 	memcpy(& saddr->sin_addr, addr, 4);
 }
 
-inline copyAddr(struct sockaddr_in *addr, void *dstAddr) {
+inline void copyAddr(struct sockaddr_in *addr, void *dstAddr) {
 	memcpy(dstAddr, &addr->sin_addr, 4);
 }
 */
