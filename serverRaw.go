@@ -175,7 +175,7 @@ func (c *Server) RequestLoop() {
 			sHead.SeqNo = seqNo
 			// send endSession as well
 			sHead.MessageCnt = 0xffff
-			log.Info("Retrans endSession, seqNo:", seqNo)
+			//log.Info("Retrans endSession, seqNo:", seqNo)
 			if err := EncodeHead(buff[:headSize], &sHead); err == nil {
 				err = Sendto(c.fd, buff[:headSize], 0, &hc.remote)
 			} else {
