@@ -26,7 +26,7 @@ func main() {
 	flag.StringVar(&maddr, "m", "239.192.168.1", "Multicast IPv4 to listen")
 	flag.StringVar(&opt.IfName, "i", "", "Interface name for multicast")
 	flag.IntVar(&port, "p", 5858, "UDP port to listen")
-	flag.IntVar(&waits, "w", 0, "seconds wait for UDP packet, 0 unlimited")
+	flag.IntVar(&waits, "w", 30, "seconds wait for UDP packet, 0 unlimited")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: client [options]\n")
 		flag.PrintDefaults()

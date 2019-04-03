@@ -272,12 +272,13 @@ func (c *Server) ServerLoop() {
 			if st.Sub(lastSend) >= hbInterval {
 				head.SeqNo = c.seqNo
 				if c.endSession {
+					// endSession must be last packet
 					head.MessageCnt = 0xffff
 				} else {
 					head.MessageCnt = 0
+					c.nHeartBB++
+					mcastBuff(0)
 				}
-				c.nHeartBB++
-				mcastBuff(0)
 			}
 			if c.endTime != 0 {
 				if c.endTime < time.Now().Unix() {
