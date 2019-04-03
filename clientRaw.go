@@ -88,6 +88,7 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 
 func (c *Client) requestLoop() {
 	ticker := time.NewTicker(time.Millisecond * 200)
+	nextReqT := int64(0)
 	for c.Running {
 		select {
 		case <-ticker.C:
@@ -97,6 +98,20 @@ func (c *Client) requestLoop() {
 					// need send Request
 					c.request(req)
 				}
+			}
+			tt := time.Now().Unix()
+			if nextReqT != 0 {
+				if c.LastRecv+1 >= tt {
+					nextReqT = 0
+				} else {
+					nextReqT = tt + 1
+					req := c.newReq(c.seqNo + 200)
+					if req != nil {
+						c.request(req)
+					}
+				}
+			} else if c.LastRecv+1 < tt {
+				nextReqT = tt + 1
 			}
 		case msgBB, ok := <-c.ch:
 			if ok {

@@ -116,7 +116,7 @@ func Marshal(buff []byte, msgs []Message) (msgCnt int, bufLen int) {
 //  `%{color}%{time:15:04:05.000} %{shortfunc} ▶ %{level:.4s} %{id:03x}%{color:reset} %{message}`
 func init() {
 	var format = logging.MustStringFormatter(
-		`%{color}%{time:01-02 15:04:05}  ▶ %{level:.4s} %{color:reset} %{message}`,
+		`%{color}%{time:01-02 15:04:05.000}  ▶ %{level:.4s} %{color:reset} %{message}`,
 	)
 
 	logback := logging.NewLogBackend(os.Stderr, "", 0)

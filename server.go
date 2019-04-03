@@ -93,6 +93,7 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, er
 	} else {
 		log.Error("Get UDPConn fd", err)
 	}
+	ReserveSendBuf(fd)
 	log.Info("Server listen", server.conn.LocalAddr())
 	/*
 		if err := JoinMulticast(fd, server.dst.IP, ifn); err != nil {
@@ -141,7 +142,12 @@ func (c *Server) RequestLoop() {
 		for seqNo < atomic.LoadUint64(&hc.seqNext) {
 			lastS := int(atomic.LoadUint64(&hc.seqNext))
 			msgCnt, bLen := Marshal(buff[headSize:], c.msgs[seqNo-1:lastS-1])
-			sHead.MessageCnt = uint16(msgCnt)
+			if msgCnt == 0 && c.endSession {
+				// end of Session
+				break
+			} else {
+				sHead.MessageCnt = uint16(msgCnt)
+			}
 			if err := EncodeHead(buff[:headSize], &sHead); err != nil {
 				log.Error("EncodeHead for proccess reTrans", err)
 				continue
@@ -152,27 +158,28 @@ func (c *Server) RequestLoop() {
 				break
 			}
 			seqNo += uint64(msgCnt)
+			if seqNo >= uint64(len(c.msgs)) {
+				break
+			}
 			sHead.SeqNo = seqNo
 			// system Sleep delay 50us about, so about 100us sleep
 			// or changed to Sleep 50us
 			time.Sleep(time.Microsecond * 50)
 		}
+		atomic.StoreInt32(&hc.running, 0)
 		// ony recover lost last packet and endSession
 		// using endSession Hearbeat packet to indicate endSession
-		/*
-			if c.endSession && int(seqNo) == len(c.msgs) {
-				sHead.SeqNo = seqNo
-				// send endSession as well
-				sHead.MessageCnt = 0xffff
-				log.Info("Retrans endSession, seqNo:", seqNo)
-				if err := EncodeHead(buff[:headSize], &sHead); err == nil {
-					_, err = c.conn.WriteToUDP(buff[:headSize], &hc.remote)
-				} else {
-					log.Error("EncodeHead for proccess reTrans endSession", err)
-				}
+		if c.endSession && int(c.seqNo) >= len(c.msgs) {
+			sHead.SeqNo = seqNo
+			// send endSession as well
+			sHead.MessageCnt = 0xffff
+			log.Info("Retrans endSession, seqNo:", seqNo)
+			if err := EncodeHead(buff[:headSize], &sHead); err == nil {
+				_, err = c.conn.WriteToUDP(buff[:headSize], &hc.remote)
+			} else {
+				log.Error("EncodeHead for proccess reTrans endSession", err)
 			}
-		*/
-		atomic.StoreInt32(&hc.running, 0)
+		}
 	}
 	lastLog := time.Now()
 	for c.Running {
@@ -212,7 +219,7 @@ func (c *Server) RequestLoop() {
 				hc.seqAcked = head.SeqNo
 			}
 			if time.Now().Sub(lastLog) >= time.Second {
-				log.Info(rAddr, "in process retrans for", hc.seqAcked, hc.seqNext)
+				log.Info(rAddr, "in process retrans for", hc.seqAcked, seqNext)
 				lastLog = time.Now()
 			}
 		} else {
@@ -314,7 +321,8 @@ func (c *Server) ServerLoop() {
 			//runtime.Gosched()
 			// 500ns need tx qlen>=2000, 200ns need 5000
 			//Sleep(time.Nanosecond * 250)
-			Sleep(time.Microsecond * 1)
+			//Sleep(time.Microsecond * 1)
+			Sleep(time.Nanosecond * 250)
 		}
 		c.seqNo = uint64(seqNo)
 		dur := time.Now().Sub(st)

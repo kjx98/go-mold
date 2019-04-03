@@ -171,7 +171,7 @@ func ReserveSendBuf(fd int) {
 	if bl, err := GetsockoptInt(fd, C.SOL_SOCKET, C.SO_SNDBUF); err == nil {
 		log.Infof("Socket SNDBUF is %d Kb", bl/1024)
 	}
-	log.Infof("Try set Socket RcvBuf to %d KB", bLen/1024)
+	log.Infof("Try set Socket SndBuf to %d KB", bLen/1024)
 	if err := SetsockoptInt(fd, C.SOL_SOCKET, C.SO_SNDBUF, bLen); err != nil {
 		log.Error("SetsockoptInt, SO_SNDBUF", err)
 	}
