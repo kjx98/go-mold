@@ -129,6 +129,8 @@ func (c *Client) doMsgLoop() {
 			continue
 		} else {
 			if len(c.reqSrv) == 0 {
+				// request port diff from sending source port
+				remoteAddr.Port++
 				c.reqSrv = append(c.reqSrv, remoteAddr)
 			}
 		}

@@ -24,6 +24,7 @@ type Server struct {
 	Session       string
 	dst           net.UDPAddr
 	conn          *net.UDPConn
+	connReq       *net.UDPConn
 	PPms          int
 	Running       bool
 	endSession    bool
@@ -47,6 +48,10 @@ func (c *Server) Close() error {
 	}
 	err := c.conn.Close()
 	c.conn = nil
+	if c.connReq != nil {
+		c.connReq.Close()
+		c.connReq = nil
+	}
 	return err
 }
 
@@ -93,6 +98,12 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, er
 	} else {
 		log.Error("Get UDPConn fd", err)
 	}
+	laddr.Port++
+	server.connReq, err = net.ListenUDP("udp", &laddr)
+	if err != nil {
+		log.Error("can't listen on request port")
+		server.connReq = nil
+	}
 	ReserveSendBuf(fd)
 	log.Info("Server listen", server.conn.LocalAddr())
 	/*
@@ -115,6 +126,7 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, er
 
 type hostControl struct {
 	remote   net.UDPAddr
+	bEnd     bool
 	seqAcked uint64
 	seqNext  uint64 // max nak sequence
 	running  int32
@@ -153,7 +165,8 @@ func (c *Server) RequestLoop() {
 				continue
 			}
 			atomic.AddInt32(&c.nResent, 1)
-			if _, err := c.conn.WriteToUDP(buff[:headSize+bLen], &hc.remote); err != nil {
+			if _, err := c.connReq.WriteToUDP(buff[:headSize+bLen],
+				&hc.remote); err != nil {
 				log.Error("Res WriteToUDP", hc.remote, err)
 				break
 			}
@@ -169,21 +182,25 @@ func (c *Server) RequestLoop() {
 		atomic.StoreInt32(&hc.running, 0)
 		// ony recover lost last packet and endSession
 		// using endSession Hearbeat packet to indicate endSession
-		if c.endSession && int(c.seqNo) >= len(c.msgs) {
+		if c.endSession && int(c.seqNo) >= len(c.msgs) && !hc.bEnd {
+			hc.bEnd = true
 			sHead.SeqNo = seqNo
 			// send endSession as well
 			sHead.MessageCnt = 0xffff
 			//log.Info("Retrans endSession, seqNo:", seqNo)
 			if err := EncodeHead(buff[:headSize], &sHead); err == nil {
-				_, err = c.conn.WriteToUDP(buff[:headSize], &hc.remote)
+				_, err = c.connReq.WriteToUDP(buff[:headSize], &hc.remote)
 			} else {
 				log.Error("EncodeHead for proccess reTrans endSession", err)
 			}
 		}
 	}
+	if c.connReq == nil {
+		return
+	}
 	lastLog := time.Now()
 	for c.Running {
-		n, remoteAddr, err := c.conn.ReadFromUDP(c.buff)
+		n, remoteAddr, err := c.connReq.ReadFromUDP(c.buff)
 		if err != nil {
 			log.Error("ReadFromUDP from", remoteAddr, " ", err)
 			continue

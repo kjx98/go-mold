@@ -25,6 +25,7 @@ type Server struct {
 	Session       string
 	dst           SockaddrInet4
 	fd            int
+	fdReq         int
 	PPms          int
 	Running       bool
 	endSession    bool
@@ -90,17 +91,25 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, er
 	}
 	fd := server.fd
 	ReserveSendBuf(fd)
-	if bLoop {
-		// let system allc port
-		laddr.Port = 0
-	} else {
-		SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-	}
+	SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 	err = Bind(fd, &laddr)
 	if err != nil {
 		Close(fd)
 		log.Error("syscall.Bind", err)
 		return nil, err
+	}
+	server.fdReq, err = Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
+	if err != nil {
+		server.fdReq = -1
+	} else {
+		SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+		laddr.Port++
+		err = Bind(fd, &laddr)
+		if err != nil {
+			Close(server.fdReq)
+			log.Error("syscall.Bind", err)
+			server.fdReq = -1
+		}
 	}
 	if err := SetMulticastInterface(fd, ifn); err != nil {
 		log.Info("set multicast interface", err)
@@ -117,6 +126,7 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, er
 
 type hostControl struct {
 	remote   SockaddrInet4
+	bEnd     bool
 	seqAcked uint64
 	seqNext  uint64 // max nak sequence
 	running  int32
@@ -155,7 +165,7 @@ func (c *Server) RequestLoop() {
 				continue
 			}
 			atomic.AddInt32(&c.nResent, 1)
-			if err := Sendto(c.fd, buff[:headSize+bLen], 0, &hc.remote); err != nil {
+			if err := Sendto(c.fdReq, buff[:headSize+bLen], 0, &hc.remote); err != nil {
 				log.Error("Res Sendto UDP", hc.remote, err)
 				break
 			}
@@ -171,21 +181,25 @@ func (c *Server) RequestLoop() {
 		atomic.StoreInt32(&hc.running, 0)
 		// ony recover lost last packet and endSession
 		// using endSession Hearbeat packet to indicate endSession
-		if c.endSession && int(c.seqNo) >= len(c.msgs) {
+		if c.endSession && int(c.seqNo) >= len(c.msgs) && !hc.bEnd {
+			hc.bEnd = true
 			sHead.SeqNo = seqNo
 			// send endSession as well
 			sHead.MessageCnt = 0xffff
 			//log.Info("Retrans endSession, seqNo:", seqNo)
 			if err := EncodeHead(buff[:headSize], &sHead); err == nil {
-				err = Sendto(c.fd, buff[:headSize], 0, &hc.remote)
+				err = Sendto(c.fdReq, buff[:headSize], 0, &hc.remote)
 			} else {
 				log.Error("EncodeHead for proccess reTrans endSession", err)
 			}
 		}
 	}
+	if c.fdReq < 0 {
+		return
+	}
 	lastLog := time.Now()
 	for c.Running {
-		n, remoteAddr, err := Recvfrom(c.fd, c.buff, 0)
+		n, remoteAddr, err := Recvfrom(c.fdReq, c.buff, 0)
 		if err != nil {
 			log.Error("Recvfrom", remoteAddr, " ", err)
 			continue
