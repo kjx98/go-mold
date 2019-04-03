@@ -1,6 +1,7 @@
 package MoldUDP
 
 import (
+	"fmt"
 	"net"
 	"runtime"
 	"strings"
@@ -85,8 +86,8 @@ func SetsockoptInt(fd, level, opt, val int) (err error) {
 }
 
 func Socket(domain, typ, proto int) (fd int, err error) {
-	//fd = int(C.socket(C.int(domain), C.int(typ), C.int(proto)))
-	fd = int(C.socket(C.int(domain), C.int(typ)|C.SOCK_NONBLOCK, C.int(proto)))
+	fd = int(C.socket(C.int(domain), C.int(typ), C.int(proto)))
+	//fd = int(C.socket(C.int(domain), C.int(typ)|C.SOCK_NONBLOCK, C.int(proto)))
 	if fd < 0 {
 		err = syscall.Errno(C.errNo())
 	}
@@ -104,6 +105,16 @@ func Close(fd int) (err error) {
 type SockaddrInet4 struct {
 	Port int
 	Addr [4]byte
+}
+
+func (adr *SockaddrInet4) IP() string {
+	return fmt.Sprintf("%d.%d.%d.%d", adr.Addr[0], adr.Addr[1], adr.Addr[2],
+		adr.Addr[3])
+}
+
+func (adr *SockaddrInet4) String() string {
+	return fmt.Sprintf("%d.%d.%d.%d:%d", adr.Addr[0], adr.Addr[1],
+		adr.Addr[2], adr.Addr[3], adr.Port)
 }
 
 func Bind(fd int, laddr *SockaddrInet4) (err error) {
