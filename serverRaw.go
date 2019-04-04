@@ -91,6 +91,7 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, er
 	}
 	fd := server.fd
 	ReserveSendBuf(fd)
+	log.Info("Server listen", LocalAddr(fd))
 	SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 	err = Bind(fd, &laddr)
 	if err != nil {
@@ -102,6 +103,7 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, er
 	if err != nil {
 		server.fdReq = -1
 	} else {
+		fd := server.fdReq
 		SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 		laddr.Port++
 		err = Bind(fd, &laddr)
@@ -109,6 +111,8 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, er
 			Close(server.fdReq)
 			log.Error("syscall.Bind", err)
 			server.fdReq = -1
+		} else {
+			log.Info("Request Server listen", LocalAddr(fd))
 		}
 	}
 	if err := SetMulticastInterface(fd, ifn); err != nil {

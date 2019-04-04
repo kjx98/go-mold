@@ -98,14 +98,16 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool) (*Server, er
 	} else {
 		log.Error("Get UDPConn fd", err)
 	}
+	log.Info("Server listen", server.conn.LocalAddr())
 	laddr.Port++
 	server.connReq, err = net.ListenUDP("udp", &laddr)
 	if err != nil {
 		log.Error("can't listen on request port")
 		server.connReq = nil
+	} else {
+		log.Info("Request Server listen", server.connReq.LocalAddr())
 	}
 	ReserveSendBuf(fd)
-	log.Info("Server listen", server.conn.LocalAddr())
 	/*
 		if err := JoinMulticast(fd, server.dst.IP, ifn); err != nil {
 			log.Info("add multicast group", err)

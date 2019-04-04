@@ -117,6 +117,17 @@ func (adr *SockaddrInet4) String() string {
 		adr.Addr[2], adr.Addr[3], adr.Port)
 }
 
+func LocalAddr(fd int) *SockaddrInet4 {
+	saddr := C.struct_sockaddr_in{}
+	aLen := C.socklen_t(unsafe.Sizeof(saddr))
+	if C.getsockname(C.int(fd), (*C.struct_sockaddr)(unsafe.Pointer(&saddr)), &aLen) < 0 {
+		return nil
+	}
+	laddr := &SockaddrInet4{Port: int(C.ntohs(saddr.sin_port))}
+	C.copyAddr(&saddr, unsafe.Pointer(&laddr.Addr[0]))
+	return laddr
+}
+
 func Bind(fd int, laddr *SockaddrInet4) (err error) {
 	saddr := C.struct_sockaddr_in{}
 	C.newSockaddrIn(C.int(laddr.Port), unsafe.Pointer(&laddr.Addr[0]), &saddr)

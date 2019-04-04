@@ -75,7 +75,7 @@ func NewClient(udpAddr string, port int, opt *Option) (*Client, error) {
 }
 
 func (c *Client) requestLoop() {
-	ticker := time.NewTicker(time.Millisecond * 200)
+	ticker := time.NewTicker(time.Millisecond * 100)
 	nextReqT := int64(0)
 	for c.Running {
 		select {

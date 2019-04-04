@@ -160,7 +160,7 @@ func (c *Client) request(buff []byte) {
 	c.nRequest++
 	adr := &c.reqSrv[c.robinN]
 	if c.nRequest < 5 {
-		log.Info("Send reTrans seq:", c.seqNo, " req to", adr.Addr, adr.Port)
+		log.Info("Send reTrans seq:", c.seqNo, " req to", adr)
 	}
 	if err := Sendto(c.fd, buff, 0, adr); err != nil {
 		log.Error("Req Sendto", err)
