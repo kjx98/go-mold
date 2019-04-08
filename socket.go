@@ -18,6 +18,19 @@ import (
 //#include <string.h>
 //#include <errno.h>
 /*
+#ifndef	_GNU_SOURCE
+struct mmsghdr {
+    struct msghdr msg_hdr;
+    unsigned int msg_len;
+};
+extern int sendmmsg (int __fd, struct mmsghdr *__vmessages,
+			unsigned int __vlen, int __flags);
+extern int recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
+			unsigned int flags, struct timespec *timeout);
+#endif
+
+#define	MAX_BATCH	64
+#define	MAX_PACKET	1472
 int inline errNo() { return errno; }
 
 inline void newSockaddrIn(int port, const void *addr, struct sockaddr_in *saddr)
@@ -30,6 +43,10 @@ inline void newSockaddrIn(int port, const void *addr, struct sockaddr_in *saddr)
 inline void copyAddr(struct sockaddr_in *addr, void *dstAddr) {
 	memcpy(dstAddr, &addr->sin_addr, 4);
 }
+
+struct	iovec iovec[MAX_BATCH][1];
+struct	mmsghdr	dgrams[MAX_BATCH];
+char	buf[MAX_BATCH][MAX_PACKET];
 */
 import "C"
 
@@ -82,7 +99,7 @@ func SetsockoptInt(fd, level, opt, val int) (err error) {
 	if ret != 0 {
 		err = syscall.Errno(C.errNo())
 	}
-	return nil
+	return
 }
 
 func Socket(domain, typ, proto int) (fd int, err error) {
@@ -106,6 +123,8 @@ type SockaddrInet4 struct {
 	Port int
 	Addr [4]byte
 }
+
+//type SockaddrInet4 = syscall.SockaddrInet4
 
 func (adr *SockaddrInet4) IP() string {
 	return fmt.Sprintf("%d.%d.%d.%d", adr.Addr[0], adr.Addr[1], adr.Addr[2],
@@ -218,7 +237,7 @@ func JoinMulticast(fd int, maddr []byte, ifn *net.Interface) (err error) {
 	if res != 0 {
 		err = syscall.Errno(C.errNo())
 	}
-	return nil
+	return
 }
 
 func SetMulticastInterface(fd int, ifn *net.Interface) (err error) {
@@ -240,7 +259,7 @@ func SetMulticastInterface(fd int, ifn *net.Interface) (err error) {
 	if res != 0 {
 		err = syscall.Errno(C.errNo())
 	}
-	return nil
+	return
 }
 
 //退出组播域
@@ -271,4 +290,65 @@ func SetBroadcast(fd int, bLoop bool) error {
 		iVal = 1
 	}
 	return SetsockoptInt(fd, C.SOL_SOCKET, C.SO_BROADCAST, iVal)
+}
+
+func Sendmmsg(fd int, bufs [][]byte, to *SockaddrInet4) (cnt int, err error) {
+	taddr := C.struct_sockaddr_in{}
+	C.newSockaddrIn(C.int(to.Port), unsafe.Pointer(&to.Addr[0]), &taddr)
+	bSize := len(bufs)
+	if bSize > C.MAX_BATCH {
+		bSize = C.MAX_BATCH
+	}
+	for i := 0; i < bSize; i++ {
+		buf := bufs[i]
+		C.iovec[i][0].iov_base = unsafe.Pointer(&buf[0])
+		C.iovec[i][0].iov_len = C.size_t(len(buf))
+		C.dgrams[i].msg_hdr.msg_iov = &(C.iovec[i][0])
+		C.dgrams[i].msg_hdr.msg_iovlen = 1
+		C.dgrams[i].msg_hdr.msg_name = unsafe.Pointer(&taddr)
+		C.dgrams[i].msg_hdr.msg_namelen = C.socklen_t(unsafe.Sizeof(taddr))
+	}
+	res := C.sendmmsg(C.int(fd), &(C.dgrams[0]), C.uint(bSize), 0)
+	if res < 0 {
+		err = syscall.Errno(C.errNo())
+	} else {
+		cnt = int(res)
+	}
+	return
+}
+
+func Recvmmsg(fd int, bufs [][]byte, flags int) (cnt int, from *SockaddrInet4, err error) {
+	raddr := C.struct_sockaddr_in{}
+	raddrLen := C.socklen_t(unsafe.Sizeof(raddr))
+	bSize := len(bufs)
+	if bSize > C.MAX_BATCH {
+		bSize = C.MAX_BATCH
+	}
+	C.dgrams[0].msg_hdr.msg_name = unsafe.Pointer(&raddr)
+	C.dgrams[0].msg_hdr.msg_namelen = raddrLen
+	for i := 0; i < bSize; i++ {
+		buf := bufs[i]
+		C.iovec[i][0].iov_base = unsafe.Pointer(&buf[0])
+		C.iovec[i][0].iov_len = C.size_t(len(buf))
+		C.dgrams[i].msg_hdr.msg_iov = &(C.iovec[i][0])
+		C.dgrams[i].msg_hdr.msg_iovlen = 1
+		if i == 0 {
+			continue
+		}
+		C.dgrams[i].msg_hdr.msg_name = C.NULL
+		C.dgrams[i].msg_hdr.msg_namelen = 0
+	}
+	res := C.recvmmsg(C.int(fd), &(C.dgrams[0]), C.uint(bSize), 0,
+		(*C.struct_timespec)(C.NULL))
+	if res < 0 {
+		errN := C.errNo()
+		if errN != 0 && errN != C.EAGAIN && errN != C.EWOULDBLOCK {
+			err = syscall.Errno(C.errNo())
+		}
+	} else {
+		cnt = int(res)
+	}
+	from = &SockaddrInet4{Port: int(C.ntohs(raddr.sin_port))}
+	C.copyAddr(&raddr, unsafe.Pointer(&from.Addr[0]))
+	return
 }
