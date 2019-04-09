@@ -38,6 +38,7 @@ func TestUnmarshal(t *testing.T) {
 		{"Unmarshal1", msgBuf0, nil, true},
 		{"Unmarshal2", msgBuf1, []Message{msg0}, false},
 		{"Unmarshal3", msgBuf2, []Message{msg0, msg1}, false},
+		{"Unmarshal4", msgBuf3, []Message{msg0, msg1, msg2}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -67,6 +68,7 @@ func TestMarshal(t *testing.T) {
 		// TODO: Add test cases.
 		{"testMarshal1", args{msgBuf1, []Message{msg0}}, 1, 10},
 		{"testMarshal2", args{msgBuf2, []Message{msg0, msg1}}, 2, 220},
+		{"testMarshal3", args{msgBuf3, []Message{msg0, msg1, msg2}}, 3, 222},
 	}
 	buff := make([]byte, 256)
 	for _, tt := range tests {

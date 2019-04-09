@@ -348,6 +348,11 @@ func Recvmmsg(fd int, bufs [][]byte, flags int) (cnt int, from *SockaddrInet4, e
 		}
 	} else {
 		cnt = int(res)
+		for i := 0; i < cnt; i++ {
+			buf := bufs[i]
+			bLen := int(C.iovec[i][0].iov_len)
+			bufs[i] = buf[:bLen]
+		}
 	}
 	from = &SockaddrInet4{Port: int(C.ntohs(raddr.sin_port))}
 	C.copyAddr(&raddr, unsafe.Pointer(&from.Addr[0]))

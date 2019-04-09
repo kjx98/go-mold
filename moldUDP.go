@@ -106,8 +106,10 @@ func Marshal(buff []byte, msgs []Message) (msgCnt int, bufLen int) {
 		}
 		coder.PutUint16(buff[bufLen:bufLen+2], uint16(mLen))
 		bufLen += 2
-		copy(buff[bufLen:bufLen+mLen], msg.Data)
-		bufLen += mLen
+		if mLen > 0 {
+			copy(buff[bufLen:bufLen+mLen], msg.Data)
+			bufLen += mLen
+		}
 		msgCnt++
 	}
 	return

@@ -11,7 +11,8 @@ var headBytes [20]byte
 var msgBuf0 []byte
 var msgBuf1 []byte
 var msgBuf2 []byte
-var msg0, msg1 Message
+var msgBuf3 []byte
+var msg0, msg1, msg2 Message
 
 func init() {
 	copy(headBytes[:], []byte(bytes.Repeat([]byte("  "), 5)))
@@ -21,9 +22,11 @@ func init() {
 	msgBuf0 = make([]byte, 256)
 	msgBuf0[0] = 8
 	msgBuf0[10] = 208
-	msgBuf0[220] = 64
+	msgBuf0[222] = 64
 	msgBuf1 = msgBuf0[:10]
 	msgBuf2 = msgBuf0[:220]
+	msgBuf3 = msgBuf0[:222]
 	msg0.Data = msgBuf0[2:10]
 	msg1.Data = msgBuf0[12:220]
+	msg2.Data = []byte{}
 }
