@@ -198,6 +198,7 @@ func (c *ServerBase) RequestLoop() {
 			hc = new(hostControl)
 			hc.seqAcked = head.SeqNo
 			hc.remote = *remoteAddr
+			hc.remote.Port = c.dstPort
 			hostMap[rAddr] = hc
 		}
 		if head.SeqNo > hc.seqAcked {
