@@ -25,7 +25,7 @@ func NewNetIf() McastConn {
 }
 
 func (c *netIf) String() string {
-	return "golang net Intf"
+	return "net Intf"
 }
 
 func (c *netIf) Close() error {
@@ -56,18 +56,26 @@ func (c *netIf) Open(ip net.IP, port int, ifn *net.Interface) (err error) {
 }
 
 func (c *netIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) (err error) {
-	if err = c.Open(ip, port, ifn); err != nil {
-		return
+	var fd int = -1
+	laddr := net.UDPAddr{IP: net.IPv4(0, 0, 0, 0), Port: port}
+	c.conn, err = net.ListenUDP("udp4", &laddr)
+	if err != nil {
+		return err
 	}
-	log.Info("Try Multicast ", ip, ":", port)
-	var fd int
+	c.adr.IP = ip
+	c.adr.Port = port
 	if ff, err := c.conn.File(); err == nil {
 		fd = int(ff.Fd())
 	} else {
 		log.Error("Get UDPConn fd", err)
-		return err
 	}
-	//ReserveSendBuf(fd)
+	if fd >= 0 {
+		ReserveSendBuf(fd)
+	}
+	if err := JoinMulticast(fd, ip.To4(), ifn); err != nil {
+		log.Info("add multicast group", err)
+	}
+	log.Info("Try Multicast ", ip, ":", port)
 	if bLoop {
 		if err = SetMulticastLoop(fd, true); err != nil {
 			log.Info("set multicast loopback", err)
@@ -76,7 +84,15 @@ func (c *netIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) (e
 	return
 }
 
+//var nlogs = 0
+
 func (c *netIf) Send(buff []byte) (int, error) {
+	/*
+		if nlogs < 2 {
+			nlogs++
+			log.Infof("try mc %d bytes to %s:%d", len(buff), c.adr.IP, c.adr.Port)
+		}
+	*/
 	return c.conn.WriteToUDP(buff, &c.adr)
 }
 

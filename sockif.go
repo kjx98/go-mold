@@ -15,7 +15,7 @@ func NewSockIf() McastConn {
 }
 
 func (c *sockIf) String() string {
-	return "socket Intf"
+	return "rawSocket Intf"
 }
 
 func (c *sockIf) Close() error {

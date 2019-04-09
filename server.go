@@ -52,28 +52,6 @@ func (c *Server) FeedMessages(feeds []Message) {
 	c.msgs = append(c.msgs, feeds...)
 }
 
-func (server *Server) init(udpAddr string, port int) {
-	server.seqNo = 1
-	server.waits = 5
-	server.PPms = PPms
-	// sequence number is 1 based
-	server.dstIP = net.ParseIP(udpAddr)
-	server.dstPort = port
-	if !server.dstIP.IsMulticast() {
-		log.Info(server.dstIP, " is not multicast IP")
-		server.dstIP = net.IPv4(224, 0, 0, 1)
-	}
-	laddr := net.UDPAddr{IP: net.IPv4(0, 0, 0, 0), Port: port + 1}
-	if conn, err := net.ListenUDP("udp", &laddr); err != nil {
-		log.Error("can't listen on request port")
-	} else {
-		server.connReq = conn
-		log.Info("Request Server listen", server.connReq.LocalAddr())
-	}
-	server.buff = make([]byte, 2048)
-	server.Running = true
-}
-
 type hostControl struct {
 	remote   net.UDPAddr
 	bEnd     bool
@@ -247,8 +225,20 @@ func (c *Server) Close() error {
 }
 
 func NewServer(udpAddr string, port int, ifName string, bLoop bool, conn McastConn) (*Server, error) {
-	server := Server{conn: conn, dstPort: port}
-	server.init(udpAddr, port)
+	server := Server{conn: conn, dstPort: port, seqNo: 1, PPms: PPms, waits: 5}
+	// sequence number is 1 based
+	server.dstIP = net.ParseIP(udpAddr)
+	if !server.dstIP.IsMulticast() {
+		log.Info(server.dstIP, " is not multicast IP")
+		server.dstIP = net.IPv4(224, 0, 0, 1)
+	}
+	laddr := net.UDPAddr{IP: net.IPv4(0, 0, 0, 0), Port: port + 1}
+	if conn, err := net.ListenUDP("udp4", &laddr); err != nil {
+		log.Error("can't listen on request port")
+	} else {
+		server.connReq = conn
+		log.Info("Request Server listen", server.connReq.LocalAddr())
+	}
 	var ifn *net.Interface
 	if ifName != "" {
 		if ifnn, err := net.InterfaceByName(ifName); err != nil {
@@ -262,7 +252,8 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool, conn McastCo
 		log.Error("Open Multicast", err)
 		return nil, err
 	}
-
+	server.buff = make([]byte, 2048)
+	server.Running = true
 	return &server, nil
 }
 
