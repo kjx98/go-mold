@@ -53,10 +53,38 @@ func (c *sockIf) Open(ip net.IP, port int, ifn *net.Interface) error {
 }
 
 func (c *sockIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) (err error) {
-	if err = c.Open(ip, port, ifn); err != nil {
+	copy(c.dst.Addr[:], ip.To4())
+	c.dst.Port = port
+	c.fd, err = Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
+	if err != nil {
 		return
 	}
+
+	laddr := SockaddrInet4{Port: port}
+	SetsockoptInt(c.fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+	if bLoop {
+		laddr.Port = 0
+	}
+	err = Bind(c.fd, &laddr)
+	if err != nil {
+		Close(c.fd)
+		log.Error("syscall.Bind", err)
+		return
+	}
+	log.Info("Server listen", LocalAddr(c.fd))
+	// set Multicast
+	/*
+		err = JoinMulticast(c.fd, c.dst.Addr[:], ifn)
+		if err != nil {
+			log.Info("add multi group", err)
+		}
+	*/
+	//ReserveRecvBuf(c.fd)
 	ReserveSendBuf(c.fd)
+	log.Infof("Try Multicast %s:%d", ip, port)
+	if err := SetMulticastInterface(c.fd, ifn); err != nil {
+		log.Info("set multicast interface", err)
+	}
 	if bLoop {
 		if err = SetMulticastLoop(c.fd, true); err != nil {
 			log.Info("set multicast loopback", err)

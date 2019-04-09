@@ -39,8 +39,8 @@ func (c *netIf) Open(ip net.IP, port int, ifn *net.Interface) (err error) {
 	if err != nil {
 		return err
 	}
-	laddr.IP = ip
-	c.adr = laddr
+	c.adr.IP = ip
+	c.adr.Port = port
 	if ff, err := c.conn.File(); err == nil {
 		fd = int(ff.Fd())
 	} else {
@@ -58,6 +58,10 @@ func (c *netIf) Open(ip net.IP, port int, ifn *net.Interface) (err error) {
 func (c *netIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) (err error) {
 	var fd int = -1
 	laddr := net.UDPAddr{IP: net.IPv4(0, 0, 0, 0), Port: port}
+	if bLoop {
+		// let system allc port
+		laddr.Port = 0
+	}
 	c.conn, err = net.ListenUDP("udp4", &laddr)
 	if err != nil {
 		return err
@@ -72,12 +76,18 @@ func (c *netIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) (e
 	if fd >= 0 {
 		ReserveSendBuf(fd)
 	}
-	if err := JoinMulticast(fd, ip.To4(), ifn); err != nil {
-		log.Info("add multicast group", err)
+	log.Info("Server listen", c.conn.LocalAddr())
+	/*
+		if err := JoinMulticast(fd, ip.To4(), ifn); err != nil {
+			log.Info("add multicast group", err)
+		}
+	*/
+	log.Infof("Try Multicast %s:%d", ip, port)
+	if err := SetMulticastInterface(fd, ifn); err != nil {
+		log.Info("set multicast interface", err)
 	}
-	log.Info("Try Multicast ", ip, ":", port)
 	if bLoop {
-		if err = SetMulticastLoop(fd, true); err != nil {
+		if err := SetMulticastLoop(fd, true); err != nil {
 			log.Info("set multicast loopback", err)
 		}
 	}
