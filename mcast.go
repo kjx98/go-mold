@@ -1,19 +1,25 @@
 package MoldUDP
 
 import (
+	"errors"
 	"net"
 )
 
 type Packet []byte
 type McastConn interface {
+	HasMmsg() bool
 	Close() error
 	Open(ip net.IP, port int, ifn *net.Interface) error
 	OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) error
 	Send(buff []byte) (int, error)
 	Recv(buff []byte) (int, *net.UDPAddr, error)
 	MSend(buffs []Packet) (int, error)
-	MRecv(buffs []Packet) (int, *net.UDPAddr, error)
+	MRecv() ([]Packet, *net.UDPAddr, error)
 }
+
+var (
+	errNotSupport = errors.New("Interface not support")
+)
 
 type netIf struct {
 	conn *net.UDPConn
@@ -22,6 +28,10 @@ type netIf struct {
 
 func NewNetIf() McastConn {
 	return &netIf{}
+}
+
+func (c *netIf) HasMmsg() bool {
+	return false
 }
 
 func (c *netIf) String() string {
@@ -111,20 +121,9 @@ func (c *netIf) Recv(buff []byte) (int, *net.UDPAddr, error) {
 }
 
 func (c *netIf) MSend(buffs []Packet) (int, error) {
-	return 0, nil
+	return 0, errNotSupport
 }
-func (c *netIf) MRecv(buffs []Packet) (cnt int, rAddr *net.UDPAddr, errRet error) {
-	for cnt = 0; cnt < len(buffs); cnt++ {
-		_, adr, err := c.conn.ReadFromUDP(buffs[cnt])
-		if cnt == 0 && err != nil {
-			return 0, nil, err
-		}
-		if err != nil {
-			break
-		}
-		if cnt == 0 {
-			rAddr = adr
-		}
-	}
+func (c *netIf) MRecv() (buffs []Packet, rAddr *net.UDPAddr, errRet error) {
+	errRet = errNotSupport
 	return
 }

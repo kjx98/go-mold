@@ -14,6 +14,10 @@ func NewSockIf() McastConn {
 	return &sockIf{fd: -1}
 }
 
+func (c *sockIf) HasMmsg() bool {
+	return true
+}
+
 func (c *sockIf) String() string {
 	return "rawSocket Intf"
 }
@@ -112,6 +116,6 @@ func (c *sockIf) MSend(buffs []Packet) (int, error) {
 	return 0, nil
 }
 
-func (c *sockIf) MRecv(buffs []Packet) (int, *net.UDPAddr, error) {
-	return 0, nil, nil
+func (c *sockIf) MRecv() ([]Packet, *net.UDPAddr, error) {
+	return nil, nil, nil
 }
