@@ -77,7 +77,7 @@ func (c *Server) ServerLoop() {
 		if err := EncodeHead(buff[:headSize], &head); err != nil {
 			log.Error("EncodeHead for proccess mcast", err)
 		} else {
-			if err := Sendto(c.fd, buff[:headSize+bLen], 0, &c.dst); err != nil {
+			if _, err := Sendto(c.fd, buff[:headSize+bLen], 0, &c.dst); err != nil {
 				log.Error("mcast send", err)
 			}
 			lastSend = time.Now()

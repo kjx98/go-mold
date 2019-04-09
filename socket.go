@@ -178,19 +178,20 @@ func Recvfrom(fd int, p []byte, flags int) (n int, from *SockaddrInet4, err erro
 	return
 }
 
-func Sendto(fd int, p []byte, flags int, to *SockaddrInet4) (err error) {
+func Sendto(fd int, p []byte, flags int, to *SockaddrInet4) (int, error) {
 	taddr := C.struct_sockaddr_in{}
 	C.newSockaddrIn(C.int(to.Port), unsafe.Pointer(&to.Addr[0]), &taddr)
 	ret := C.sendto(C.int(fd), unsafe.Pointer(&p[0]), C.size_t(len(p)),
 		C.int(flags), (*C.struct_sockaddr)(unsafe.Pointer(&taddr)),
 		C.uint(unsafe.Sizeof(taddr)))
+	var err error
 	if ret < 0 {
 		errN := C.errNo()
 		if errN != 0 && errN != C.EAGAIN && errN != C.EWOULDBLOCK {
 			err = syscall.Errno(C.errNo())
 		}
 	}
-	return
+	return int(ret), err
 }
 
 func ReserveRecvBuf(fd int) {

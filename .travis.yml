@@ -16,4 +16,3 @@ install:
 
 script:
     - go test -v
-    - go test -v -tags rawSocket

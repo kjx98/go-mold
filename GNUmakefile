@@ -25,11 +25,6 @@ bin/client:	cmd/client/main.go
 	@go build -o $@ $^
 	@strip $@ || echo "client OK"
 
-bin/clientRaw:	cmd/client/main.go
-	@[ -d bin ] || mkdir bin
-	@go build -tags rawSocket -o $@ $^
-	@strip $@ || echo "clientRaw OK"
-
 bin/server:	cmd/server/main.go
 	@[ -d bin ] || mkdir bin
 	@go build -o $@ $^
@@ -40,11 +35,10 @@ bin/serverRaw:	cmd/server/main.go
 	@go build -tags rawSocket -o $@ $^
 	@strip $@ || echo "serverRaw OK"
 
-raw: bin/clientRaw bin/serverRaw
+raw: bin/serverRaw
 
 test:
 	@go test
-	@go test -tags rawSocket
 
 bench:
 	sudo cpupower frequency-set --governor performance

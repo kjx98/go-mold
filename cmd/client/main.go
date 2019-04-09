@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kjx98/go-ats"
+	ats "github.com/kjx98/go-ats"
 	MoldUDP "github.com/kjx98/go-mold"
 	logging "github.com/op/go-logging"
 )
@@ -21,19 +21,30 @@ func main() {
 	var maddr string
 	var port int
 	var waits int
+	var netMode string
 	var firstTic, lastTic *ats.TickFX
 	var fTic, lTic ats.TickFX
+	var netif MoldUDP.McastConn
 	flag.StringVar(&maddr, "m", "239.192.168.1", "Multicast IPv4 to listen")
 	flag.StringVar(&opt.IfName, "i", "", "Interface name for multicast")
 	flag.IntVar(&port, "p", 5858, "UDP port to listen")
 	flag.IntVar(&waits, "w", 30, "seconds wait for UDP packet, 0 unlimited")
+	flag.StringVar(&netMode, "net", "go", "Multicast Recv network interface, go/sock/zsock")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: client [options]\n")
 		flag.PrintDefaults()
 		os.Exit(2)
 	}
 	flag.Parse()
-	cc, err := MoldUDP.NewClient(maddr, port, &opt)
+	switch netMode {
+	case "sock", "socket":
+		netif = MoldUDP.NewSockIf()
+	case "net":
+		fallthrough
+	default:
+		netif = MoldUDP.NewNetIf()
+	}
+	cc, err := MoldUDP.NewClient(maddr, port, &opt, netif)
 	if err != nil {
 		log.Error("NewClient", err)
 		os.Exit(1)
