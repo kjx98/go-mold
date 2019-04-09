@@ -24,7 +24,6 @@ const (
 type Client struct {
 	dstIP            net.IP // Multicast dst IP
 	dstPort          int    // Multicast dst Port
-	dst              net.UDPAddr
 	connReq          *net.UDPConn
 	conn             McastConn
 	reqSrv           []*net.UDPAddr
@@ -296,9 +295,9 @@ func NewClient(udpAddr string, port int, opt *Option, conn McastConn) (*Client, 
 	}
 	client.dstIP = net.ParseIP(udpAddr)
 	client.dstPort = port
-	if !client.dst.IP.IsMulticast() {
-		log.Info(client.dst.IP, "is not multicast IP")
-		client.dst.IP = net.IPv4(224, 0, 0, 1)
+	if !client.dstIP.IsMulticast() {
+		log.Info(client.dstIP, "is not multicast IP")
+		client.dstIP = net.IPv4(224, 0, 0, 1)
 	}
 	var ifn *net.Interface
 	if opt.IfName != "" {

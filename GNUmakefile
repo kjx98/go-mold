@@ -30,13 +30,6 @@ bin/server:	cmd/server/main.go
 	@go build -o $@ $^
 	@strip $@ || echo "server OK"
 
-bin/serverRaw:	cmd/server/main.go
-	@[ -d bin ] || mkdir bin
-	@go build -tags rawSocket -o $@ $^
-	@strip $@ || echo "serverRaw OK"
-
-raw: bin/serverRaw
-
 test:
 	@go test
 

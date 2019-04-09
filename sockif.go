@@ -14,6 +14,10 @@ func NewSockIf() McastConn {
 	return &sockIf{fd: -1}
 }
 
+func (c *sockIf) String() string {
+	return "socket Intf"
+}
+
 func (c *sockIf) Close() error {
 	if c.fd < 0 {
 		return errClosed
@@ -46,6 +50,19 @@ func (c *sockIf) Open(ip net.IP, port int, ifn *net.Interface) error {
 		log.Info("add multi group", err)
 	}
 	return nil
+}
+
+func (c *sockIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) (err error) {
+	if err = c.Open(ip, port, ifn); err != nil {
+		return
+	}
+	ReserveSendBuf(c.fd)
+	if bLoop {
+		if err = SetMulticastLoop(c.fd, true); err != nil {
+			log.Info("set multicast loopback", err)
+		}
+	}
+	return
 }
 
 func (c *sockIf) Recv(buff []byte) (int, *net.UDPAddr, error) {

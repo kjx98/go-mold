@@ -8,6 +8,7 @@ type Packet []byte
 type McastConn interface {
 	Close() error
 	Open(ip net.IP, port int, ifn *net.Interface) error
+	OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) error
 	Send(buff []byte) (int, error)
 	Recv(buff []byte) (int, *net.UDPAddr, error)
 	MSend(buffs []Packet) (int, error)
@@ -16,11 +17,15 @@ type McastConn interface {
 
 type netIf struct {
 	conn *net.UDPConn
-	adr  *net.UDPAddr
+	adr  net.UDPAddr
 }
 
 func NewNetIf() McastConn {
 	return &netIf{}
+}
+
+func (c *netIf) String() string {
+	return "golang net Intf"
 }
 
 func (c *netIf) Close() error {
@@ -35,7 +40,7 @@ func (c *netIf) Open(ip net.IP, port int, ifn *net.Interface) (err error) {
 		return err
 	}
 	laddr.IP = ip
-	c.adr = &laddr
+	c.adr = laddr
 	if ff, err := c.conn.File(); err == nil {
 		fd = int(ff.Fd())
 	} else {
@@ -50,8 +55,29 @@ func (c *netIf) Open(ip net.IP, port int, ifn *net.Interface) (err error) {
 	return nil
 }
 
+func (c *netIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) (err error) {
+	if err = c.Open(ip, port, ifn); err != nil {
+		return
+	}
+	log.Info("Try Multicast ", ip, ":", port)
+	var fd int
+	if ff, err := c.conn.File(); err == nil {
+		fd = int(ff.Fd())
+	} else {
+		log.Error("Get UDPConn fd", err)
+		return err
+	}
+	//ReserveSendBuf(fd)
+	if bLoop {
+		if err = SetMulticastLoop(fd, true); err != nil {
+			log.Info("set multicast loopback", err)
+		}
+	}
+	return
+}
+
 func (c *netIf) Send(buff []byte) (int, error) {
-	return c.conn.WriteToUDP(buff[:], c.adr)
+	return c.conn.WriteToUDP(buff, &c.adr)
 }
 
 func (c *netIf) Recv(buff []byte) (int, *net.UDPAddr, error) {

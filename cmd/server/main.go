@@ -23,6 +23,8 @@ func main() {
 	var tickCnt int
 	var bLoop bool
 	var waits int
+	var netMode string
+	var netif MoldUDP.McastConn
 	flag.StringVar(&maddr, "m", "239.192.168.1", "Multicast IPv4 to listen")
 	flag.StringVar(&ifName, "i", "", "Interface name for multicast")
 	flag.BoolVar(&bLoop, "l", false, "multicast loopback")
@@ -30,20 +32,29 @@ func main() {
 	flag.IntVar(&ppms, "s", 100, "PPms packets per ms")
 	flag.IntVar(&tickCnt, "c", 40000000, "max tick count load")
 	flag.IntVar(&waits, "w", 5, "seconds wait after endSession, default 5s")
+	flag.StringVar(&netMode, "net", "net", "Multicast Recv network interface, net/sock/zsock")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: server [options]\n")
 		flag.PrintDefaults()
 		os.Exit(2)
 	}
 	flag.Parse()
-	cc, err := MoldUDP.NewServer(maddr, port, ifName, bLoop)
+	switch netMode {
+	case "sock", "socket":
+		netif = MoldUDP.NewSockIf()
+	case "net":
+		fallthrough
+	default:
+		netif = MoldUDP.NewNetIf()
+	}
+	cc, err := MoldUDP.NewServer(maddr, port, ifName, bLoop, netif)
 	if err != nil {
 		log.Error("NewServer", err)
 		os.Exit(1)
 	}
 	defer cc.Close()
-	log.Infof("Start MoldUDP64 Multicast server, mc addr: %s:%d, PPms: %d",
-		maddr, port, ppms)
+	log.Infof("Start MoldUDP64 Multicast server via %s, mc addr: %s:%d, PPms: %d",
+		netif, maddr, port, ppms)
 	// catch  SIGTERM, SIGINT, SIGUP
 	sigC := make(chan os.Signal, 10)
 	signal.Notify(sigC)
