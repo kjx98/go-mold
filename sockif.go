@@ -58,6 +58,9 @@ func (c *sockIf) Open(ip net.IP, port int, ifn *net.Interface) error {
 	if err != nil {
 		log.Info("add multi group", err)
 	}
+	for i := 0; i < maxBatch; i++ {
+		c.buffs[i] = make([]byte, 2048)
+	}
 	return nil
 }
 
@@ -132,5 +135,17 @@ func (c *sockIf) MSend(buffs []Packet) (int, error) {
 }
 
 func (c *sockIf) MRecv() ([]Packet, *net.UDPAddr, error) {
-	return nil, nil, nil
+	if !c.bRead {
+		return nil, nil, errModeRW
+	}
+	bufs := make([]Packet, maxBatch)
+	copy(bufs, c.buffs[:])
+	n, remoteAddr, err := Recvmmsg(c.fd, bufs, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	rAddr := net.UDPAddr{Port: remoteAddr.Port}
+	Addr := remoteAddr.Addr[:]
+	rAddr.IP = net.IPv4(Addr[0], Addr[1], Addr[2], Addr[3])
+	return bufs[:n], &rAddr, nil
 }

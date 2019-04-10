@@ -41,7 +41,6 @@ type Client struct {
 	lastN            int32
 	robinN           int
 	session          string
-	buff             []byte
 	nMerges          int
 	readLock         sync.RWMutex
 	ch               chan msgBuf
@@ -105,10 +104,10 @@ func (c *Client) popCache(seqNo uint64) []Message {
 	return c.cache.Merge(seqNo)
 }
 
-func (c *Client) gotBuff(n int) error {
+func (c *Client) gotBuff(buff []byte, n int) error {
 	c.nRecvs++
 	var head Header
-	if err := DecodeHead(c.buff[:n], &head); err != nil {
+	if err := DecodeHead(buff[:n], &head); err != nil {
 		c.nError++
 		return errDecodeHead
 	}
@@ -131,7 +130,7 @@ func (c *Client) gotBuff(n int) error {
 			return errMessageCnt
 		}
 		newBuf = make([]byte, n-headSize)
-		copy(newBuf, c.buff[headSize:n])
+		copy(newBuf, buff[headSize:n])
 	} else {
 		// newBuf is nil for endSession or Heartbeat
 	}
@@ -322,7 +321,6 @@ func NewClient(udpAddr string, port int, opt *Option, conn McastConn) (*Client, 
 		}
 		client.reqSrv = append(client.reqSrv, &udpA)
 	}
-	client.buff = make([]byte, 2048)
 	client.ch = make(chan msgBuf, 10000)
 	client.cache.Init()
 	client.Running = true
@@ -376,20 +374,42 @@ func (c *Client) requestLoop() {
 }
 
 func (c *Client) doMsgLoop() {
+	bMmsg := c.conn.HasMmsg()
+	buff := make([]byte, 2048)
 	for c.Running {
-		n, remoteAddr, err := c.conn.Recv(c.buff)
-		if err != nil {
-			log.Error("ReadFromUDP from", remoteAddr, " ", err)
-			continue
-		}
-		if err := c.gotBuff(n); err != nil {
-			log.Error("Packet from", remoteAddr, " error:", err)
-			continue
+		if bMmsg {
+			bufs, remoteAddr, err := c.conn.MRecv()
+			if err != nil {
+				log.Error("MRecv from", remoteAddr, " ", err)
+				continue
+			}
+			for _, buf := range bufs {
+				if err := c.gotBuff(buf, len(buf)); err != nil {
+					log.Error("Packet from", remoteAddr, " error:", err)
+					continue
+				} else {
+					if len(c.reqSrv) == 0 {
+						// request port diff from sending source port
+						remoteAddr.Port = c.dstPort + 1
+						c.reqSrv = append(c.reqSrv, remoteAddr)
+					}
+				}
+			}
 		} else {
-			if len(c.reqSrv) == 0 {
-				// request port diff from sending source port
-				remoteAddr.Port = c.dstPort + 1
-				c.reqSrv = append(c.reqSrv, remoteAddr)
+			n, remoteAddr, err := c.conn.Recv(buff)
+			if err != nil {
+				log.Error("Recv from", remoteAddr, " ", err)
+				continue
+			}
+			if err := c.gotBuff(buff, n); err != nil {
+				log.Error("Packet from", remoteAddr, " error:", err)
+				continue
+			} else {
+				if len(c.reqSrv) == 0 {
+					// request port diff from sending source port
+					remoteAddr.Port = c.dstPort + 1
+					c.reqSrv = append(c.reqSrv, remoteAddr)
+				}
 			}
 		}
 	}

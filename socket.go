@@ -318,7 +318,7 @@ func Sendmmsg(fd int, bufs [][]byte, to *SockaddrInet4) (cnt int, err error) {
 	return
 }
 
-func Recvmmsg(fd int, bufs [][]byte, flags int) (cnt int, from *SockaddrInet4, err error) {
+func Recvmmsg(fd int, bufs []Packet, flags int) (cnt int, from *SockaddrInet4, err error) {
 	raddr := C.struct_sockaddr_in{}
 	raddrLen := C.socklen_t(unsafe.Sizeof(raddr))
 	bSize := len(bufs)
