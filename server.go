@@ -206,10 +206,10 @@ func (c *Server) SeqNo() int {
 }
 
 func (c *Server) DumpStats() {
-	log.Infof("Total Sent: %d HeartBeat: %d seqNo: %d, sleep: %d\n"+
+	log.Infof("Total Sent: %d HeartBeat: %d seqNo: %d, sleep: %d/%d\n"+
 		"Recv: %d, errors: %d, reSent: %d, maxGoes: %d",
-		c.nSent, c.nHeartBB, c.seqNo, c.nSleep, c.nRecvs, c.nError,
-		c.nResent, c.nMaxGoes)
+		c.nSent, c.nHeartBB, c.seqNo, c.nSleep, c.nSleepMsend, c.nRecvs,
+		c.nError, c.nResent, c.nMaxGoes)
 }
 
 func (c *Server) Close() error {
@@ -361,8 +361,9 @@ func (c *Server) ServerLoop() {
 					break
 				} else {
 					off += n
-					Sleep(time.Nanosecond * 250)
+					c.nSent += n
 					c.nSleepMsend++
+					Sleep(time.Nanosecond * 250)
 				}
 			}
 		}
