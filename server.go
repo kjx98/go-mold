@@ -261,8 +261,7 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool, conn McastCo
 func (c *Server) ServerLoop() {
 	var buff [maxUDPsize]byte
 	head := Header{Session: c.Session}
-	lastSend := time.Now()
-	hbInterval := time.Second * heartBeatInt
+	lastSend := time.Now().Unix()
 	mcastBuff := func(buff []byte, bLen int) {
 		if err := EncodeHead(buff[:headSize], &head); err != nil {
 			log.Error("EncodeHead for proccess mcast", err)
@@ -270,11 +269,14 @@ func (c *Server) ServerLoop() {
 			if _, err := c.conn.Send(buff[:headSize+bLen]); err != nil {
 				log.Error("mcast send", err)
 			}
-			lastSend = time.Now()
+			atomic.StoreInt64(&lastSend, time.Now().Unix())
 			c.nSent++
 		}
 	}
 	bMmsg := c.conn.HasMmsg()
+	if bMmsg {
+		log.Info("Using Sendmmsg for multicast send")
+	}
 	var sbuffs, obuffs []Packet
 	if bMmsg {
 		sbuffs = make([]Packet, c.PPms)
@@ -283,16 +285,21 @@ func (c *Server) ServerLoop() {
 			sbuffs[i] = make([]byte, maxUDPsize)
 		}
 	}
+	hbLogs := 0
 	for c.Running {
 		st := time.Now()
 		seqNo := int(c.seqNo)
 		if seqNo > len(c.msgs) {
 			// check for heartbeat sent
-			if st.Sub(lastSend) >= hbInterval {
+			if st.Unix()-atomic.LoadInt64(&lastSend) >= heartBeatInt {
 				head.SeqNo = c.seqNo
 				if c.endSession {
 					// endSession must be last packets
 					head.MessageCnt = 0xffff
+					if hbLogs < 5 {
+						log.Info("endSession sent EOS instead of HB")
+						hbLogs++
+					}
 				} else {
 					head.MessageCnt = 0
 				}
@@ -307,10 +314,13 @@ func (c *Server) ServerLoop() {
 			} else if c.endSession {
 				c.endTime = time.Now().Unix()
 				c.endTime += int64(c.waits)
+				// leave sent out endSession to heartbeat interval
 				// send End of Session packet
-				head.SeqNo = c.seqNo
-				head.MessageCnt = 0xffff
-				mcastBuff(buff[:], 0)
+				/*
+					head.SeqNo = c.seqNo
+					head.MessageCnt = 0xffff
+					mcastBuff(buff[:], 0)
+				*/
 				log.Info("All messages sent, end Session")
 			}
 			runtime.Gosched()
@@ -360,10 +370,12 @@ func (c *Server) ServerLoop() {
 				if n, err := c.conn.MSend(obuffs[off:nObuff]); err != nil {
 					break
 				} else {
+					//lastSend = time.Now()
+					atomic.StoreInt64(&lastSend, time.Now().Unix())
 					off += n
 					c.nSent += n
 					c.nSleepMsend++
-					Sleep(time.Nanosecond * 250)
+					Sleep(time.Nanosecond * 5000)
 				}
 			}
 		}
