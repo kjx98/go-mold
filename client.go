@@ -37,6 +37,7 @@ type Client struct {
 	nRecvs, nRequest int
 	nError, nMissed  int
 	nRepeats         int
+	lastLogTime      int64
 	lastSeq          uint64
 	lastN            int32
 	robinN           int
@@ -155,7 +156,10 @@ func (c *Client) doMsgBuf(msgBB *msgBuf) ([]byte, error) {
 			log.Info("Got endSession packet")
 			c.endSession = true
 		}
-		if msgBB.seqNo == c.seqNo && c.seqNo >= c.seqMax {
+		if msgBB.seqNo != c.seqNo {
+			// seldomness, got endSession while c.seqMax<c.seqNo
+			c.seqMax = msgBB.seqNo
+		} else if c.seqNo >= c.seqMax {
 			log.Info("Got all messages seqNo:", c.seqNo, " to stop running")
 			//c.Running = false
 			c.bDone = true
@@ -360,7 +364,10 @@ func (c *Client) requestLoop() {
 		case msgBB, ok := <-c.ch:
 			if ok {
 				if req, err := c.doMsgBuf(&msgBB); err != nil {
-					log.Error("doMsgBuf", err)
+					if c.lastLogTime < time.Now().Unix() {
+						c.lastLogTime = time.Now().Unix()
+						log.Error("doMsgBuf", err)
+					}
 				} else {
 					if req != nil {
 						// need send Request
@@ -383,8 +390,16 @@ func (c *Client) doMsgLoop() {
 				log.Error("MRecv from", remoteAddr, " ", err)
 				continue
 			}
-			for _, buf := range bufs {
-				if err := c.gotBuff(buf, len(buf)); err != nil {
+			for i := 0; i < len(bufs); i++ {
+				buf := []byte(bufs[i])
+				bLen := len(buf)
+				/*
+					if c.lastLogTime < time.Now().Unix() && i == 0 {
+						log.Infof("MRecv got %d bufs,buf0 len: %d", len(bufs), bLen)
+						c.lastLogTime = time.Now().Unix()
+					}
+				*/
+				if err := c.gotBuff(buf, bLen); err != nil {
 					log.Error("Packet from", remoteAddr, " error:", err)
 					continue
 				} else {

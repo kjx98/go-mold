@@ -46,7 +46,6 @@ inline void copyAddr(struct sockaddr_in *addr, void *dstAddr) {
 
 struct	iovec iovec[MAX_BATCH][1];
 struct	mmsghdr	dgrams[MAX_BATCH];
-char	buf[MAX_BATCH][MAX_PACKET];
 */
 import "C"
 
@@ -350,7 +349,7 @@ func Recvmmsg(fd int, bufs []Packet, flags int) (cnt int, from *SockaddrInet4, e
 		cnt = int(res)
 		for i := 0; i < cnt; i++ {
 			buf := bufs[i]
-			bLen := int(C.iovec[i][0].iov_len)
+			bLen := int(C.dgrams[i].msg_len)
 			bufs[i] = buf[:bLen]
 		}
 	}
