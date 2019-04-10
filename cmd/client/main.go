@@ -22,7 +22,6 @@ func main() {
 	var port int
 	var waits int
 	var netMode string
-	var netif MoldUDP.McastConn
 	var firstTic, lastTic *ats.TickFX
 	var fTic, lTic ats.TickFX
 
@@ -37,14 +36,7 @@ func main() {
 		os.Exit(2)
 	}
 	flag.Parse()
-	switch netMode {
-	case "sock", "socket":
-		netif = MoldUDP.NewSockIf()
-	case "net":
-		fallthrough
-	default:
-		netif = MoldUDP.NewNetIf()
-	}
+	netif := MoldUDP.NewIf(netMode)
 	log.Info("Client listen", maddr, "via", netif)
 	cc, err := MoldUDP.NewClient(maddr, port, &opt, netif)
 	if err != nil {

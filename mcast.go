@@ -34,7 +34,19 @@ type netIf struct {
 	adr   net.UDPAddr
 }
 
-func NewNetIf() McastConn {
+func NewIf(netMode string) (netif McastConn) {
+	switch netMode {
+	case "sock", "socket":
+		netif = newSockIf()
+	case "net":
+		fallthrough
+	default:
+		netif = newNetIf()
+	}
+	return
+}
+
+func newNetIf() McastConn {
 	return &netIf{}
 }
 

@@ -24,7 +24,6 @@ func main() {
 	var bLoop bool
 	var waits int
 	var netMode string
-	var netif MoldUDP.McastConn
 	flag.StringVar(&maddr, "m", "239.192.168.1", "Multicast IPv4 to listen")
 	flag.StringVar(&ifName, "i", "", "Interface name for multicast")
 	flag.BoolVar(&bLoop, "l", false, "multicast loopback")
@@ -39,14 +38,7 @@ func main() {
 		os.Exit(2)
 	}
 	flag.Parse()
-	switch netMode {
-	case "sock", "socket":
-		netif = MoldUDP.NewSockIf()
-	case "net":
-		fallthrough
-	default:
-		netif = MoldUDP.NewNetIf()
-	}
+	netif := MoldUDP.NewIf(netMode)
 	cc, err := MoldUDP.NewServer(maddr, port, ifName, bLoop, netif)
 	if err != nil {
 		log.Error("NewServer", err)

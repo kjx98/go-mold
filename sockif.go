@@ -12,7 +12,7 @@ type sockIf struct {
 	buffs [maxBatch]Packet
 }
 
-func NewSockIf() McastConn {
+func newSockIf() McastConn {
 	return &sockIf{fd: -1}
 }
 
