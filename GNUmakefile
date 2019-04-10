@@ -31,7 +31,8 @@ bin/server:	cmd/server/main.go
 	@strip $@ || echo "server OK"
 
 test:
-	@go test
+	@go test -v
+	@go test -tags nativeEndian -v
 
 bench:
 	sudo cpupower frequency-set --governor performance

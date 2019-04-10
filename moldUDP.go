@@ -73,8 +73,14 @@ func DecodeHead(buff []byte, head *Header) error {
 	return nil
 }
 
-func Unmarshal(buff []byte) (ret []Message, err error) {
+func Unmarshal(buff []byte, cnt int) (ret []Message, err error) {
+	if cnt == 0 {
+		return
+	}
+	// if cnt < 0 { return nil, errMessageCnt }
+	ret = make([]Message, cnt)
 	n := len(buff)
+	i := 0
 	off := 0
 	for off < n {
 		if off+2 > n {
@@ -92,7 +98,14 @@ func Unmarshal(buff []byte) (ret []Message, err error) {
 		*/
 		mess := Message{Data: buff[off : off+ll]}
 		off += ll
-		ret = append(ret, mess)
+		ret[i] = mess
+		i++
+		if i == cnt {
+			break
+		}
+	}
+	if off != n {
+		return nil, errUnmarshal
 	}
 	return
 }

@@ -6,8 +6,10 @@ import (
 )
 
 type sockIf struct {
-	dst SockaddrInet4
-	fd  int
+	dst   SockaddrInet4
+	fd    int
+	bRead bool
+	buffs [maxBatch]Packet
 }
 
 func NewSockIf() McastConn {
@@ -32,6 +34,9 @@ func (c *sockIf) Close() error {
 }
 
 func (c *sockIf) Open(ip net.IP, port int, ifn *net.Interface) error {
+	if c.fd >= 0 {
+		return errOpened
+	}
 	var err error
 	copy(c.dst.Addr[:], ip.To4())
 	c.dst.Port = port
@@ -39,7 +44,6 @@ func (c *sockIf) Open(ip net.IP, port int, ifn *net.Interface) error {
 	if err != nil {
 		return err
 	}
-
 	ReserveRecvBuf(c.fd)
 	SetsockoptInt(c.fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 	err = Bind(c.fd, &SockaddrInet4{Port: port})
@@ -48,6 +52,7 @@ func (c *sockIf) Open(ip net.IP, port int, ifn *net.Interface) error {
 		log.Error("syscall.Bind", err)
 		return err
 	}
+	c.bRead = true
 	// set Multicast
 	err = JoinMulticast(c.fd, c.dst.Addr[:], ifn)
 	if err != nil {
@@ -57,6 +62,9 @@ func (c *sockIf) Open(ip net.IP, port int, ifn *net.Interface) error {
 }
 
 func (c *sockIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) (err error) {
+	if c.fd >= 0 {
+		return errOpened
+	}
 	copy(c.dst.Addr[:], ip.To4())
 	c.dst.Port = port
 	c.fd, err = Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
@@ -75,6 +83,7 @@ func (c *sockIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) (
 		log.Error("syscall.Bind", err)
 		return
 	}
+	c.bRead = false
 	log.Info("Server listen", LocalAddr(c.fd))
 	// set Multicast
 	/*
@@ -98,6 +107,9 @@ func (c *sockIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) (
 }
 
 func (c *sockIf) Recv(buff []byte) (int, *net.UDPAddr, error) {
+	if !c.bRead {
+		return 0, nil, errModeRW
+	}
 	n, remoteAddr, err := Recvfrom(c.fd, buff, 0)
 	if err != nil {
 		return 0, nil, err
@@ -109,6 +121,9 @@ func (c *sockIf) Recv(buff []byte) (int, *net.UDPAddr, error) {
 }
 
 func (c *sockIf) Send(buff []byte) (int, error) {
+	if c.bRead {
+		return 0, errModeRW
+	}
 	return Sendto(c.fd, buff, 0, &c.dst)
 }
 

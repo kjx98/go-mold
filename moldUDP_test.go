@@ -31,18 +31,19 @@ func TestUnmarshal(t *testing.T) {
 	tests := []struct {
 		name    string
 		arg     []byte
+		cnt     int
 		wantRet []Message
 		wantErr bool
 	}{
 		// TODO: Add test cases.
-		{"Unmarshal1", msgBuf0, nil, true},
-		{"Unmarshal2", msgBuf1, []Message{msg0}, false},
-		{"Unmarshal3", msgBuf2, []Message{msg0, msg1}, false},
-		{"Unmarshal4", msgBuf3, []Message{msg0, msg1, msg2}, false},
+		{"Unmarshal1", msgBuf0, 4, nil, true},
+		{"Unmarshal2", msgBuf1, 1, []Message{msg0}, false},
+		{"Unmarshal3", msgBuf2, 2, []Message{msg0, msg1}, false},
+		{"Unmarshal4", msgBuf3, 3, []Message{msg0, msg1, msg2}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotRet, err := Unmarshal(tt.arg)
+			gotRet, err := Unmarshal(tt.arg, tt.cnt)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Unmarshal() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -101,9 +102,16 @@ func BenchmarkDecodeHead(b *testing.B) {
 	}
 }
 
+func BenchmarkMarshal(b *testing.B) {
+	var buff [256]byte
+	for i := 0; i < b.N; i++ {
+		Marshal(buff[:], []Message{msg0, msg1, msg2})
+	}
+}
+
 func BenchmarkUnmarshal(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		Unmarshal(msgBuf2)
+		Unmarshal(msgBuf3, 3)
 	}
 }
 

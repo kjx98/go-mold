@@ -132,6 +132,8 @@ func (c *Client) gotBuff(n int) error {
 		}
 		newBuf = make([]byte, n-headSize)
 		copy(newBuf, c.buff[headSize:n])
+	} else {
+		// newBuf is nil for endSession or Heartbeat
 	}
 	msgBB := msgBuf{seqNo: head.SeqNo, msgCnt: nMsg, dataBuf: newBuf}
 	c.ch <- msgBB
@@ -141,7 +143,7 @@ func (c *Client) gotBuff(n int) error {
 func (c *Client) doMsgBuf(msgBB *msgBuf) ([]byte, error) {
 	var res []Message
 	if len(msgBB.dataBuf) > 0 {
-		if ret, err := Unmarshal(msgBB.dataBuf); err != nil {
+		if ret, err := Unmarshal(msgBB.dataBuf, int(msgBB.msgCnt)); err != nil {
 			c.nError++
 			//log.Error("Unmarshal msgBB", err)
 			return nil, err

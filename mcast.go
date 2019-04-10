@@ -6,6 +6,11 @@ import (
 )
 
 type Packet []byte
+
+const (
+	maxBatch = 64
+)
+
 type McastConn interface {
 	HasMmsg() bool
 	Close() error
@@ -19,11 +24,14 @@ type McastConn interface {
 
 var (
 	errNotSupport = errors.New("Interface not support")
+	errOpened     = errors.New("Already opened")
+	errModeRW     = errors.New("Open/OpenSend for Recv/Send")
 )
 
 type netIf struct {
-	conn *net.UDPConn
-	adr  net.UDPAddr
+	bRead bool
+	conn  *net.UDPConn
+	adr   net.UDPAddr
 }
 
 func NewNetIf() McastConn {
@@ -39,16 +47,25 @@ func (c *netIf) String() string {
 }
 
 func (c *netIf) Close() error {
-	return c.conn.Close()
+	if c.conn == nil {
+		return errClosed
+	}
+	err := c.conn.Close()
+	c.conn = nil
+	return err
 }
 
 func (c *netIf) Open(ip net.IP, port int, ifn *net.Interface) (err error) {
+	if c.conn != nil {
+		return errOpened
+	}
 	var fd int = -1
 	laddr := net.UDPAddr{IP: net.IPv4(0, 0, 0, 0), Port: port}
 	c.conn, err = net.ListenUDP("udp4", &laddr)
 	if err != nil {
 		return err
 	}
+	c.bRead = true
 	c.adr.IP = ip
 	c.adr.Port = port
 	if ff, err := c.conn.File(); err == nil {
@@ -66,6 +83,9 @@ func (c *netIf) Open(ip net.IP, port int, ifn *net.Interface) (err error) {
 }
 
 func (c *netIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) (err error) {
+	if c.conn != nil {
+		return errOpened
+	}
 	var fd int = -1
 	laddr := net.UDPAddr{IP: net.IPv4(0, 0, 0, 0), Port: port}
 	if bLoop {
@@ -76,6 +96,7 @@ func (c *netIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) (e
 	if err != nil {
 		return err
 	}
+	c.bRead = false
 	c.adr.IP = ip
 	c.adr.Port = port
 	if ff, err := c.conn.File(); err == nil {
@@ -104,19 +125,17 @@ func (c *netIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) (e
 	return
 }
 
-//var nlogs = 0
-
 func (c *netIf) Send(buff []byte) (int, error) {
-	/*
-		if nlogs < 2 {
-			nlogs++
-			log.Infof("try mc %d bytes to %s:%d", len(buff), c.adr.IP, c.adr.Port)
-		}
-	*/
+	if c.bRead {
+		return 0, errModeRW
+	}
 	return c.conn.WriteToUDP(buff, &c.adr)
 }
 
 func (c *netIf) Recv(buff []byte) (int, *net.UDPAddr, error) {
+	if !c.bRead {
+		return 0, nil, errModeRW
+	}
 	return c.conn.ReadFromUDP(buff)
 }
 
