@@ -46,6 +46,7 @@ inline void copyAddr(struct sockaddr_in *addr, void *dstAddr) {
 
 struct	iovec iovec[MAX_BATCH][1];
 struct	mmsghdr	dgrams[MAX_BATCH];
+struct timespec timeo={0,1000000};
 */
 import "C"
 
@@ -340,8 +341,9 @@ func Recvmmsg(fd int, bufs []Packet, flags int) (cnt int, from *SockaddrInet4, e
 		C.dgrams[i].msg_hdr.msg_name = C.NULL
 		C.dgrams[i].msg_hdr.msg_namelen = 0
 	}
+	// timeo set to 1 ms
 	res := C.recvmmsg(C.int(fd), &(C.dgrams[0]), C.uint(bSize), 0,
-		(*C.struct_timespec)(C.NULL))
+		&(C.timeo))
 	if res < 0 {
 		errN := C.errNo()
 		if errN != 0 && errN != C.EAGAIN && errN != C.EWOULDBLOCK {

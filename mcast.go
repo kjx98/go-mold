@@ -8,7 +8,7 @@ import (
 type Packet []byte
 
 const (
-	maxBatch = 64
+	maxBatch = 32
 )
 
 type McastConn interface {

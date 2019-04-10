@@ -33,6 +33,7 @@ type Client struct {
 	LastRecv         int64
 	seqNo            uint64
 	seqMax           uint64
+	seqEnd           uint64
 	reqLast          time.Time
 	nRecvs, nRequest int
 	nError, nMissed  int
@@ -155,16 +156,21 @@ func (c *Client) doMsgBuf(msgBB *msgBuf) ([]byte, error) {
 		if !c.endSession {
 			log.Info("Got endSession packet")
 			c.endSession = true
+			c.seqEnd = msgBB.seqNo
 		}
-		if msgBB.seqNo != c.seqNo {
-			// seldomness, got endSession while c.seqMax<c.seqNo
-			c.seqMax = msgBB.seqNo
-		} else if c.seqNo >= c.seqMax {
-			log.Info("Got all messages seqNo:", c.seqNo, " to stop running")
-			//c.Running = false
-			c.bDone = true
-			if c.ready == nil {
-				c.Running = false
+		if c.seqNo >= c.seqMax {
+			if c.seqEnd > c.seqMax && c.seqEnd > c.seqNo {
+				if c.ready == nil {
+					c.seqMax = c.seqEnd
+					log.Info("read all cache, update seqMax to EOS", c.seqMax)
+				}
+			} else {
+				log.Info("Got all messages seqNo:", c.seqNo, "to stop running")
+				//c.Running = false
+				c.bDone = true
+				if c.ready == nil {
+					c.Running = false
+				}
 			}
 		}
 	}
@@ -196,6 +202,7 @@ func (c *Client) doMsgBuf(msgBB *msgBuf) ([]byte, error) {
 		if c.seqNo < seqNo {
 			reqBuf := c.newReq(seqNo)
 			c.nMissed++
+			log.Info("Got HB, update seqMax", seqNo)
 			return reqBuf, nil
 		}
 		return nil, nil
@@ -213,15 +220,24 @@ func (c *Client) doMsgBuf(msgBB *msgBuf) ([]byte, error) {
 		seqNo += uint64(len(bb))
 	}
 	atomic.StoreUint64(&c.lastSeq, c.seqNo)
+	atomic.StoreInt32(&c.lastN, int32(seqNo-c.seqNo))
 	c.seqNo = seqNo
-	atomic.StoreInt32(&c.lastN, int32(c.seqNo-c.lastSeq))
-	if c.endSession && c.seqNo >= c.seqMax {
-		log.Info("Got all messages via retrans seqNo:", c.seqNo, " to stop running")
-		//c.Running = false
-		c.bDone = true
+	if c.endSession && seqNo >= c.seqMax {
+		if c.seqEnd > seqNo {
+			c.seqMax = c.seqEnd
+			log.Info("EOS update seqMax", c.seqEnd)
+		} else {
+			log.Info("Got all messages via retrans seqNo:", c.seqNo, " to stop running")
+			//c.Running = false
+			c.bDone = true
+		}
 	}
 	c.readLock.Lock()
-	c.ready = append(c.ready, res...)
+	if c.ready == nil {
+		c.ready = res
+	} else {
+		c.ready = append(c.ready, res...)
+	}
 	c.readLock.Unlock()
 	return nil, nil
 }
@@ -325,7 +341,7 @@ func NewClient(udpAddr string, port int, opt *Option, conn McastConn) (*Client, 
 		}
 		client.reqSrv = append(client.reqSrv, &udpA)
 	}
-	client.ch = make(chan msgBuf, 10000)
+	client.ch = make(chan msgBuf, 5000)
 	client.cache.Init()
 	client.Running = true
 	client.LastRecv = time.Now().Unix()
@@ -336,7 +352,7 @@ func NewClient(udpAddr string, port int, opt *Option, conn McastConn) (*Client, 
 
 func (c *Client) requestLoop() {
 	ticker := time.NewTicker(time.Millisecond * 100)
-	nextReqT := int64(0)
+	//nextReqT := int64(0)
 	for c.Running {
 		select {
 		case <-ticker.C:
@@ -347,20 +363,22 @@ func (c *Client) requestLoop() {
 					c.request(req)
 				}
 			}
-			tt := time.Now().Unix()
-			if nextReqT != 0 {
-				if c.LastRecv+1 >= tt {
-					nextReqT = 0
-				} else {
-					nextReqT = tt + 1
-					req := c.newReq(c.seqNo + 200)
-					if req != nil {
-						c.request(req)
+			/*
+				tt := time.Now().Unix()
+				if nextReqT != 0 {
+					if c.LastRecv+1 >= tt {
+						nextReqT = 0
+					} else {
+						nextReqT = tt + 1
+						req := c.newReq(c.seqNo + 200)
+						if req != nil {
+							c.request(req)
+						}
 					}
+				} else if c.LastRecv+1 < tt {
+					nextReqT = tt + 1
 				}
-			} else if c.LastRecv+1 < tt {
-				nextReqT = tt + 1
-			}
+			*/
 		case msgBB, ok := <-c.ch:
 			if ok {
 				if req, err := c.doMsgBuf(&msgBB); err != nil {
@@ -382,6 +400,9 @@ func (c *Client) requestLoop() {
 
 func (c *Client) doMsgLoop() {
 	bMmsg := c.conn.HasMmsg()
+	if bMmsg {
+		log.Info("Using Recvmmsg for multicast recv")
+	}
 	buff := make([]byte, 2048)
 	for c.Running {
 		if bMmsg {
