@@ -37,8 +37,8 @@ type Server struct {
 	nMaxGoes      int
 	nHeartBB      int
 	nSleep        int
+	nSleepMsend   int
 	msgs          []Message
-	buff          []byte
 }
 
 func (c *Server) EndSession(nWaits int) {
@@ -127,8 +127,9 @@ func (c *Server) RequestLoop() {
 		return
 	}
 	lastLog := time.Now()
+	rbuff := make([]byte, 1024)
 	for c.Running {
-		n, remoteAddr, err := c.connReq.ReadFromUDP(c.buff)
+		n, remoteAddr, err := c.connReq.ReadFromUDP(rbuff)
 		if err != nil {
 			log.Error("ReadFromUDP from", remoteAddr, " ", err)
 			continue
@@ -140,7 +141,7 @@ func (c *Server) RequestLoop() {
 			continue
 		}
 		var head Header
-		if err := DecodeHead(c.buff[:n], &head); err != nil {
+		if err := DecodeHead(rbuff[:n], &head); err != nil {
 			log.Error("DecodeHead from", remoteAddr, " ", err)
 			c.nError++
 			continue
@@ -252,7 +253,6 @@ func NewServer(udpAddr string, port int, ifName string, bLoop bool, conn McastCo
 		log.Error("Open Multicast", err)
 		return nil, err
 	}
-	server.buff = make([]byte, 2048)
 	server.Running = true
 	return &server, nil
 }
@@ -263,7 +263,7 @@ func (c *Server) ServerLoop() {
 	head := Header{Session: c.Session}
 	lastSend := time.Now()
 	hbInterval := time.Second * heartBeatInt
-	mcastBuff := func(bLen int) {
+	mcastBuff := func(buff []byte, bLen int) {
 		if err := EncodeHead(buff[:headSize], &head); err != nil {
 			log.Error("EncodeHead for proccess mcast", err)
 		} else {
@@ -274,7 +274,15 @@ func (c *Server) ServerLoop() {
 			c.nSent++
 		}
 	}
-
+	bMmsg := c.conn.HasMmsg()
+	var sbuffs, obuffs []Packet
+	if bMmsg {
+		sbuffs = make([]Packet, c.PPms)
+		obuffs = make([]Packet, c.PPms)
+		for i := 0; i < c.PPms; i++ {
+			sbuffs[i] = make([]byte, maxUDPsize)
+		}
+	}
 	for c.Running {
 		st := time.Now()
 		seqNo := int(c.seqNo)
@@ -289,7 +297,7 @@ func (c *Server) ServerLoop() {
 					head.MessageCnt = 0
 				}
 				c.nHeartBB++
-				mcastBuff(0)
+				mcastBuff(buff[:], 0)
 			}
 			if c.endTime != 0 {
 				if c.endTime < time.Now().Unix() {
@@ -302,31 +310,61 @@ func (c *Server) ServerLoop() {
 				// send End of Session packet
 				head.SeqNo = c.seqNo
 				head.MessageCnt = 0xffff
-				mcastBuff(0)
+				mcastBuff(buff[:], 0)
 				log.Info("All messages sent, end Session")
 			}
 			runtime.Gosched()
 			continue
 		}
 
+		sbuff := buff[:]
+		nObuff := 0
 		for i := 0; i < c.PPms; i++ {
 			if seqNo > len(c.msgs) {
 				break
 			}
-			msgCnt, bLen := Marshal(buff[headSize:], c.msgs[seqNo-1:])
+			if bMmsg {
+				sbuff = []byte(sbuffs[i])
+			}
+			msgCnt, bLen := Marshal(sbuff[headSize:], c.msgs[seqNo-1:])
 			if msgCnt == 0 {
 				break
 			}
 			head.SeqNo = uint64(seqNo)
 			head.MessageCnt = uint16(msgCnt)
-			mcastBuff(bLen)
+			if bMmsg {
+				if err := EncodeHead(sbuff[:headSize], &head); err != nil {
+					log.Error("EncodeHead for proccess mcast", err)
+				} else {
+					obuffs[nObuff] = sbuff[:headSize+bLen]
+					nObuff++
+				}
+			} else {
+				mcastBuff(sbuff, bLen)
+			}
+
 			seqNo += msgCnt
 			//time.Sleep(time.Microsecond * 10)
 			//runtime.Gosched()
 			// 500ns need tx qlen>=2000, 200ns need 5000
 			//Sleep(time.Nanosecond * 250)
 			//Sleep(time.Microsecond * 1)
-			Sleep(time.Nanosecond * 250)
+			if !bMmsg {
+				Sleep(time.Nanosecond * 250)
+			}
+		}
+		if bMmsg && nObuff > 0 {
+			// sendout MSend
+			off := 0
+			for off < nObuff {
+				if n, err := c.conn.MSend(obuffs[off:nObuff]); err != nil {
+					break
+				} else {
+					off += n
+					Sleep(time.Nanosecond * 250)
+					c.nSleepMsend++
+				}
+			}
 		}
 		c.seqNo = uint64(seqNo)
 		dur := time.Now().Sub(st)
