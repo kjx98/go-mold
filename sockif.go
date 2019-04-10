@@ -131,7 +131,10 @@ func (c *sockIf) Send(buff []byte) (int, error) {
 }
 
 func (c *sockIf) MSend(buffs []Packet) (int, error) {
-	return 0, nil
+	if c.bRead {
+		return 0, errModeRW
+	}
+	return Sendmmsg(c.fd, buffs, &c.dst)
 }
 
 func (c *sockIf) MRecv() ([]Packet, *net.UDPAddr, error) {

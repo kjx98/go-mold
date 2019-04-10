@@ -292,7 +292,7 @@ func SetBroadcast(fd int, bLoop bool) error {
 	return SetsockoptInt(fd, C.SOL_SOCKET, C.SO_BROADCAST, iVal)
 }
 
-func Sendmmsg(fd int, bufs [][]byte, to *SockaddrInet4) (cnt int, err error) {
+func Sendmmsg(fd int, bufs []Packet, to *SockaddrInet4) (cnt int, err error) {
 	taddr := C.struct_sockaddr_in{}
 	C.newSockaddrIn(C.int(to.Port), unsafe.Pointer(&to.Addr[0]), &taddr)
 	bSize := len(bufs)
@@ -303,6 +303,7 @@ func Sendmmsg(fd int, bufs [][]byte, to *SockaddrInet4) (cnt int, err error) {
 		buf := bufs[i]
 		C.iovec[i][0].iov_base = unsafe.Pointer(&buf[0])
 		C.iovec[i][0].iov_len = C.size_t(len(buf))
+		C.dgrams[i].msg_len = C.uint(len(buf))
 		C.dgrams[i].msg_hdr.msg_iov = &(C.iovec[i][0])
 		C.dgrams[i].msg_hdr.msg_iovlen = 1
 		C.dgrams[i].msg_hdr.msg_name = unsafe.Pointer(&taddr)
@@ -332,6 +333,7 @@ func Recvmmsg(fd int, bufs []Packet, flags int) (cnt int, from *SockaddrInet4, e
 		C.iovec[i][0].iov_len = C.size_t(len(buf))
 		C.dgrams[i].msg_hdr.msg_iov = &(C.iovec[i][0])
 		C.dgrams[i].msg_hdr.msg_iovlen = 1
+		C.dgrams[i].msg_len = C.uint(len(buf))
 		if i == 0 {
 			continue
 		}
