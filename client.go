@@ -202,7 +202,7 @@ func (c *Client) doMsgBuf(msgBB *msgBuf) ([]byte, error) {
 		if c.seqNo < seqNo {
 			reqBuf := c.newReq(seqNo)
 			c.nMissed++
-			log.Info("Got HB, update seqMax", seqNo)
+			//log.Info("Got HB, update seqMax", seqNo)
 			return reqBuf, nil
 		}
 		return nil, nil
