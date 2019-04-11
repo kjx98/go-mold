@@ -22,7 +22,7 @@ type McastConn interface {
 	Recv(buff []byte) (int, *net.UDPAddr, error)
 	MSend(buffs []Packet) (int, error)
 	MRecv() ([]Packet, *net.UDPAddr, error)
-	Listen(f func([]byte))
+	Listen(f func([]byte, *net.UDPAddr))
 }
 
 var (
@@ -165,5 +165,5 @@ func (c *netIf) MRecv() (buffs []Packet, rAddr *net.UDPAddr, errRet error) {
 	return
 }
 
-func (c *netIf) Listen(f func([]byte)) {
+func (c *netIf) Listen(f func([]byte, *net.UDPAddr)) {
 }

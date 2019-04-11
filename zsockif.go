@@ -88,14 +88,30 @@ func (c *zsockIf) MRecv() (buffs []Packet, rAddr *net.UDPAddr, errRet error) {
 	return
 }
 
-func (c *zsockIf) Listen(f func([]byte)) {
+func (c *zsockIf) Listen(fx func([]byte, *net.UDPAddr)) {
 	// args: interface index, options, ring block count, frameOrder, framesInBlock packet types
 	// unless you know what you're doing just pay attention to the interface index, whether
 	// or not you want the tx ring, rx ring, or both enabled, and what nettype you are listening
 	// for.
-	/*
-		zs.Listen(func(f *nettypes.Frame, frameLen, capturedLen uint16) {
-			fmt.Printf(f.String(capturedLen, 0))
-		})
-	*/
+	rAddr := net.UDPAddr{IP: net.IPv4zero}
+	c.zs.Listen(func(f *nettypes.Frame, frameLen, capturedLen uint16) {
+		if f.MACEthertype(0) != nettypes.IPv4 {
+			return
+		}
+		ln := frameLen
+		mPay, mOff := f.MACPayload(0)
+		ln -= mOff
+		ip := nettypes.IPv4_P(mPay)
+		if ip.Protocol() != nettypes.UDP {
+			return
+		}
+		iPay, iOff := ip.Payload()
+		ln -= iOff
+		udp := nettypes.UDP_P(iPay)
+		copy(rAddr.IP, ip.SourceIP())
+		rAddr.Port = int(udp.SourcePort())
+		// we don't verify checksum
+		uBuff, _ := udp.Payload()
+		fx(uBuff, &rAddr)
+	})
 }

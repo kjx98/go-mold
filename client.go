@@ -399,6 +399,24 @@ func (c *Client) requestLoop() {
 }
 
 func (c *Client) doMsgLoop() {
+	if c.conn.Enabled(HasRingBuffer) {
+		c.conn.Listen(func(buff []byte, rAddr *net.UDPAddr) {
+			if err := c.gotBuff(buff, len(buff)); err != nil {
+				if c.lastLogTime != time.Now().Unix() {
+					log.Error("Packet from", rAddr, " error:", err)
+					c.lastLogTime = time.Now().Unix()
+				}
+				log.Error("Packet from", rAddr, " error:", err)
+			} else {
+				if len(c.reqSrv) == 0 {
+					// request port diff from sending source port
+					rAddr.Port = c.dstPort + 1
+					c.reqSrv = append(c.reqSrv, rAddr)
+				}
+			}
+		})
+		return
+	}
 	bMmsg := c.conn.Enabled(HasMmsg)
 	if bMmsg {
 		log.Info("Using Recvmmsg for multicast recv")
@@ -408,7 +426,10 @@ func (c *Client) doMsgLoop() {
 		if bMmsg {
 			bufs, remoteAddr, err := c.conn.MRecv()
 			if err != nil {
-				log.Error("MRecv from", remoteAddr, " ", err)
+				if c.lastLogTime != time.Now().Unix() {
+					log.Error("MRecv from", remoteAddr, " ", err)
+					c.lastLogTime = time.Now().Unix()
+				}
 				continue
 			}
 			for i := 0; i < len(bufs); i++ {
@@ -421,7 +442,10 @@ func (c *Client) doMsgLoop() {
 					}
 				*/
 				if err := c.gotBuff(buf, bLen); err != nil {
-					log.Error("Packet from", remoteAddr, " error:", err)
+					if c.lastLogTime != time.Now().Unix() {
+						log.Error("Packet from", remoteAddr, " error:", err)
+						c.lastLogTime = time.Now().Unix()
+					}
 					continue
 				} else {
 					if len(c.reqSrv) == 0 {
@@ -438,7 +462,10 @@ func (c *Client) doMsgLoop() {
 				continue
 			}
 			if err := c.gotBuff(buff, n); err != nil {
-				log.Error("Packet from", remoteAddr, " error:", err)
+				if c.lastLogTime != time.Now().Unix() {
+					log.Error("Packet from", remoteAddr, " error:", err)
+					c.lastLogTime = time.Now().Unix()
+				}
 				continue
 			} else {
 				if len(c.reqSrv) == 0 {

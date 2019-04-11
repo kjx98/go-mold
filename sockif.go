@@ -159,5 +159,5 @@ func (c *sockIf) MRecv() ([]Packet, *net.UDPAddr, error) {
 	return bufs[:n], &rAddr, nil
 }
 
-func (c *sockIf) Listen(f func([]byte)) {
+func (c *sockIf) Listen(f func([]byte, *net.UDPAddr)) {
 }
