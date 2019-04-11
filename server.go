@@ -273,7 +273,7 @@ func (c *Server) ServerLoop() {
 			c.nSent++
 		}
 	}
-	bMmsg := c.conn.HasMmsg()
+	bMmsg := c.conn.Enabled(HasMmsg)
 	if bMmsg {
 		log.Info("Using Sendmmsg for multicast send")
 	}

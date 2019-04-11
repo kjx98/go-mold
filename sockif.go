@@ -16,8 +16,11 @@ func newSockIf() McastConn {
 	return &sockIf{fd: -1}
 }
 
-func (c *sockIf) HasMmsg() bool {
-	return true
+func (c *sockIf) Enabled(opts int) bool {
+	if (opts & HasMmsg) != 0 {
+		return true
+	}
+	return false
 }
 
 func (c *sockIf) String() string {

@@ -14,6 +14,9 @@ import (
 //#include <sys/types.h>          /* See NOTES */
 //#include <sys/socket.h>
 //#include <netinet/in.h>
+//#include <netpacket/packet.h>
+//#include <net/ethernet.h>
+//#include <linux/filter.h>
 //#include <unistd.h>
 //#include <string.h>
 //#include <errno.h>
@@ -47,8 +50,60 @@ inline void copyAddr(struct sockaddr_in *addr, void *dstAddr) {
 struct	iovec iovec[MAX_BATCH][1];
 struct	mmsghdr	dgrams[MAX_BATCH];
 struct timespec timeo={0,1000000};
+struct sock_filter filter[]={
+{ 0x28, 0, 0, 0x0000000c },
+{ 0x15, 0, 4, 0x000086dd },
+{ 0x30, 0, 0, 0x00000014 },
+{ 0x15, 0, 11, 0x00000011 },
+{ 0x28, 0, 0, 0x00000038 },
+{ 0x15, 8, 9, 0x000016e2 },	// dst udp port
+{ 0x15, 0, 8, 0x00000800 },
+{ 0x30, 0, 0, 0x00000017 },
+{ 0x15, 0, 6, 0x00000011 },
+{ 0x28, 0, 0, 0x00000014 },
+{ 0x45, 4, 0, 0x00001fff },
+{ 0xb1, 0, 0, 0x0000000e },
+{ 0x48, 0, 0, 0x00000010 },
+{ 0x15, 0, 1, 0x000016e2 },	// dst udp port
+{ 0x6, 0, 0, 0x00040000 },
+{ 0x6, 0, 0, 0x00000000 },
+};
+
+inline int setBPF(int fd) {
+	return setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER, filter, sizeof(filter));
+}
+
+inline int setPacketMultiCast(int fd, int ifIndex, unsigned char *ipAddr) {
+	struct packet_mreq mreq;
+	mreq.mr_ifindex =  ifIndex;
+	mreq.mr_type = PACKET_MR_MULTICAST; // PACKET_MR_ALLMULTI
+	mreq.mr_alen = 6;
+	mreq.mr_address[0] = 1;
+	mreq.mr_address[1] = 0;
+	mreq.mr_address[2] = 0x5e;
+	mreq.mr_address[3] = ipAddr[1] & 0x7f;
+	mreq.mr_address[4] = ipAddr[2];
+	mreq.mr_address[5] = ipAddr[3];
+	return setsockopt(fd, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mreq,
+				sizeof(mreq));
+}
+
 */
 import "C"
+
+func setBPF(fd, port int) (err error) {
+	if int(C.filter[5].k) == port && int(C.filter[13].k) == port {
+		log.Info("already set dst port filter to", port)
+	} else {
+		C.filter[5].k = C.__u32(port)
+		C.filter[13].k = C.__u32(port)
+	}
+	ret := C.setBPF(C.int(fd))
+	if ret != 0 {
+		err = syscall.Errno(C.errNo())
+	}
+	return
+}
 
 func getIfAddr(ifn *net.Interface) (net.IP, error) {
 	ret := net.IPv4zero
@@ -236,6 +291,15 @@ func JoinMulticast(fd int, maddr []byte, ifn *net.Interface) (err error) {
 	res := C.setsockopt(C.int(fd), C.IPPROTO_IP, C.IP_ADD_MEMBERSHIP,
 		unsafe.Pointer(&mreq), optLen)
 	if res != 0 {
+		err = syscall.Errno(C.errNo())
+	}
+	return
+}
+
+func JoinPacketMulticast(fd int, maddr []byte, ifn *net.Interface) (err error) {
+	ret := C.setPacketMultiCast(C.int(fd), C.int(ifn.Index),
+		(*C.uchar)(unsafe.Pointer(&maddr[0])))
+	if ret != 0 {
 		err = syscall.Errno(C.errNo())
 	}
 	return

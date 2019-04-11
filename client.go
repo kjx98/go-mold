@@ -399,7 +399,7 @@ func (c *Client) requestLoop() {
 }
 
 func (c *Client) doMsgLoop() {
-	bMmsg := c.conn.HasMmsg()
+	bMmsg := c.conn.Enabled(HasMmsg)
 	if bMmsg {
 		log.Info("Using Recvmmsg for multicast recv")
 	}

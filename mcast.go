@@ -8,11 +8,13 @@ import (
 type Packet []byte
 
 const (
-	maxBatch = 32
+	maxBatch      = 32
+	HasMmsg       = 1
+	HasRingBuffer = 2
 )
 
 type McastConn interface {
-	HasMmsg() bool
+	Enabled(opts int) bool
 	Close() error
 	Open(ip net.IP, port int, ifn *net.Interface) error
 	OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) error
@@ -50,7 +52,8 @@ func newNetIf() McastConn {
 	return &netIf{}
 }
 
-func (c *netIf) HasMmsg() bool {
+func (c *netIf) Enabled(opts int) bool {
+	//if (opts & HasMmsg) != 0 { return true }
 	return false
 }
 
