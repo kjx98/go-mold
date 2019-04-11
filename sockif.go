@@ -158,3 +158,6 @@ func (c *sockIf) MRecv() ([]Packet, *net.UDPAddr, error) {
 	rAddr.IP = net.IPv4(Addr[0], Addr[1], Addr[2], Addr[3])
 	return bufs[:n], &rAddr, nil
 }
+
+func (c *sockIf) Listen(f func([]byte)) {
+}

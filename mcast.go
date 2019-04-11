@@ -22,6 +22,7 @@ type McastConn interface {
 	Recv(buff []byte) (int, *net.UDPAddr, error)
 	MSend(buffs []Packet) (int, error)
 	MRecv() ([]Packet, *net.UDPAddr, error)
+	Listen(f func([]byte))
 }
 
 var (
@@ -40,6 +41,8 @@ func NewIf(netMode string) (netif McastConn) {
 	switch netMode {
 	case "sock", "socket":
 		netif = newSockIf()
+	case "zsock", "izsocket":
+		netif = newZSockIf()
 	case "net":
 		fallthrough
 	default:
@@ -160,4 +163,7 @@ func (c *netIf) MSend(buffs []Packet) (int, error) {
 func (c *netIf) MRecv() (buffs []Packet, rAddr *net.UDPAddr, errRet error) {
 	errRet = errNotSupport
 	return
+}
+
+func (c *netIf) Listen(f func([]byte)) {
 }
