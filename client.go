@@ -384,7 +384,7 @@ func (c *Client) requestLoop() {
 				if req, err := c.doMsgBuf(&msgBB); err != nil {
 					if c.lastLogTime < time.Now().Unix() {
 						c.lastLogTime = time.Now().Unix()
-						log.Error("doMsgBuf", err)
+						log.Errorf("doMsgBuf len(%d) %v", len(msgBB.dataBuf), err)
 					}
 				} else {
 					if req != nil {

@@ -109,6 +109,9 @@ func (c *zsockIf) Listen(fx func([]byte, *net.UDPAddr)) {
 		ln -= iOff
 		udp := nettypes.UDP_P(iPay)
 		copy(rAddr.IP, ip.SourceIP())
+		if int(udp.DestinationPort()) != c.port {
+			return
+		}
 		rAddr.Port = int(udp.SourcePort())
 		// we don't verify checksum
 		uBuff, _ := udp.Payload()
