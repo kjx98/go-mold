@@ -41,11 +41,12 @@ func (c *zsockIf) Open(ip net.IP, port int, ifn *net.Interface) (err error) {
 	if c.zs != nil {
 		return errOpened
 	}
-	c.zs, err = zsocket.NewZSocket(ifn.Index, zsocket.ENABLE_RX, 2048, 32, nettypes.IPv4)
+	c.zs, err = zsocket.NewZSocket(ifn.Index, zsocket.ENABLE_RX, 2048, 4096, nettypes.IPv4)
 	if err != nil {
 		return
 	}
 	c.port = port
+	//log.Info("Using zsocket, max PacketSize:", c.zs.MaxPacketSize())
 	fd := c.zs.Fd()
 	if err := setBPF(fd, port); err != nil {
 		log.Info("setBPF", err)
@@ -98,7 +99,7 @@ func (c *zsockIf) Listen(fx func([]byte, *net.UDPAddr)) {
 		if f.MACEthertype(0) != nettypes.IPv4 {
 			return
 		}
-		ln := frameLen
+		ln := capturedLen
 		mPay, mOff := f.MACPayload(0)
 		ln -= mOff
 		ip := nettypes.IPv4_P(mPay)
@@ -108,13 +109,15 @@ func (c *zsockIf) Listen(fx func([]byte, *net.UDPAddr)) {
 		iPay, iOff := ip.Payload()
 		ln -= iOff
 		udp := nettypes.UDP_P(iPay)
-		copy(rAddr.IP, ip.SourceIP())
+		ips := ip.SourceIP()
+		rAddr.IP = net.IPv4(ips[0], ips[1], ips[2], ips[3])
 		if int(udp.DestinationPort()) != c.port {
 			return
 		}
 		rAddr.Port = int(udp.SourcePort())
 		// we don't verify checksum
-		uBuff, _ := udp.Payload()
-		fx(uBuff, &rAddr)
+		uBuff, uOff := udp.Payload()
+		ln -= uOff
+		fx(uBuff[:ln], &rAddr)
 	})
 }

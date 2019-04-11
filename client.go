@@ -26,7 +26,7 @@ type Client struct {
 	dstPort          int    // Multicast dst Port
 	connReq          *net.UDPConn
 	conn             McastConn
-	reqSrv           []*net.UDPAddr
+	reqSrv           []net.UDPAddr
 	Running          bool
 	endSession       bool
 	bDone            bool
@@ -37,6 +37,7 @@ type Client struct {
 	reqLast          time.Time
 	nRecvs, nRequest int
 	nError, nMissed  int
+	nInvalid         int
 	nRepeats         int
 	lastLogTime      int64
 	lastSeq          uint64
@@ -339,7 +340,7 @@ func NewClient(udpAddr string, port int, opt *Option, conn McastConn) (*Client, 
 		} else {
 			udpA.Port = to.Int(ss[1])
 		}
-		client.reqSrv = append(client.reqSrv, &udpA)
+		client.reqSrv = append(client.reqSrv, udpA)
 	}
 	client.ch = make(chan msgBuf, 5000)
 	client.cache.Init()
@@ -411,7 +412,7 @@ func (c *Client) doMsgLoop() {
 				if len(c.reqSrv) == 0 {
 					// request port diff from sending source port
 					rAddr.Port = c.dstPort + 1
-					c.reqSrv = append(c.reqSrv, rAddr)
+					c.reqSrv = append(c.reqSrv, *rAddr)
 				}
 			}
 		})
@@ -451,7 +452,7 @@ func (c *Client) doMsgLoop() {
 					if len(c.reqSrv) == 0 {
 						// request port diff from sending source port
 						remoteAddr.Port = c.dstPort + 1
-						c.reqSrv = append(c.reqSrv, remoteAddr)
+						c.reqSrv = append(c.reqSrv, *remoteAddr)
 					}
 				}
 			}
@@ -471,7 +472,7 @@ func (c *Client) doMsgLoop() {
 				if len(c.reqSrv) == 0 {
 					// request port diff from sending source port
 					remoteAddr.Port = c.dstPort + 1
-					c.reqSrv = append(c.reqSrv, remoteAddr)
+					c.reqSrv = append(c.reqSrv, *remoteAddr)
 				}
 			}
 		}
@@ -487,7 +488,7 @@ func (c *Client) request(buff []byte) {
 		log.Info("Send reTrans seq:", c.seqNo, " req to", c.reqSrv[c.robinN])
 	}
 	if c.connReq == nil {
-		if conn, err := net.DialUDP("udp", nil, c.reqSrv[c.robinN]); err != nil {
+		if conn, err := net.DialUDP("udp", nil, &c.reqSrv[c.robinN]); err != nil {
 			log.Error("DialUDP requestSrv", err)
 			return
 		} else {

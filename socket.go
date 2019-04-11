@@ -70,7 +70,10 @@ struct sock_filter filter[]={
 };
 
 inline int setBPF(int fd) {
-	return setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER, filter, sizeof(filter));
+	struct sock_fprog	fProg;
+	fProg.len = sizeof(filter)/sizeof(filter[0]);
+	fProg.filter = filter;
+	return setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER, &fProg, sizeof(fProg));
 }
 
 inline int setPacketMultiCast(int fd, int ifIndex, unsigned char *ipAddr) {
