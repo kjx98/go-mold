@@ -10,3 +10,9 @@ sysctl -p
 
 # increase send if tx qlen, 10k for no lost send or 2k with 500ns send interval
 #ifconfig p1p1 txqueuelen 10000
+
+# increase memlock for zsocket
+# /etc/security/limits.conf
+#*       soft memlock 8192
+#*       hard memlock 918380
+
