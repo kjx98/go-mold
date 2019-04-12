@@ -2,6 +2,7 @@ package MoldUDP
 
 import (
 	"net"
+	"time"
 
 	"github.com/kjx98/go-mold/nettypes"
 )
@@ -88,6 +89,15 @@ func (c *zsockIf) MRecv() (buffs []Packet, rAddr *net.UDPAddr, errRet error) {
 	return
 }
 
+var logTime int64
+
+func tryLog(ss string) {
+	if time.Now().Unix() > logTime {
+		logTime = time.Now().Unix()
+		log.Info(ss)
+	}
+}
+
 func (c *zsockIf) Listen(fx func([]byte, *net.UDPAddr)) {
 	// args: interface index, options, ring block count, frameOrder, framesInBlock packet types
 	// unless you know what you're doing just pay attention to the interface index, whether
@@ -96,14 +106,16 @@ func (c *zsockIf) Listen(fx func([]byte, *net.UDPAddr)) {
 	rAddr := net.UDPAddr{IP: net.IPv4zero}
 	c.zs.Listen(func(fb []byte, frameLen, capturedLen uint16) {
 		ln := capturedLen
-		f := nettypes.Frame(fb[:ln])
+		f := nettypes.Frame(fb)
 		if f.MACEthertype(0) != nettypes.IPv4 {
+			tryLog("MAC EtherType dismatch")
 			return
 		}
 		mPay, mOff := f.MACPayload(0)
 		ln -= mOff
 		ip := nettypes.IPv4_P(mPay)
 		if ip.Protocol() != nettypes.UDP {
+			tryLog("IP Proto dismatch")
 			return
 		}
 		iPay, iOff := ip.Payload()
@@ -112,6 +124,7 @@ func (c *zsockIf) Listen(fx func([]byte, *net.UDPAddr)) {
 		ips := ip.SourceIP()
 		rAddr.IP = net.IPv4(ips[0], ips[1], ips[2], ips[3])
 		if int(udp.DestinationPort()) != c.port {
+			tryLog("UDP port dismatch")
 			return
 		}
 		rAddr.Port = int(udp.SourcePort())

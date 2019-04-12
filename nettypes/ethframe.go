@@ -226,7 +226,7 @@ func (f *Frame) VLANID() uint16 {
 
 func (f *Frame) MACEthertype(tag VLANTag) EthType {
 	pos := 12 + tag
-	tt := uint16((*f)[pos]) | uint16((*f)[pos+1])
+	tt := uint16((*f)[pos])<<8 | uint16((*f)[pos+1])
 	return EthType(tt)
 }
 
