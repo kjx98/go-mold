@@ -3,12 +3,11 @@ package MoldUDP
 import (
 	"net"
 
-	"github.com/kjx98/zsocket"
-	"github.com/kjx98/zsocket/nettypes"
+	"github.com/kjx98/go-mold/nettypes"
 )
 
 type zsockIf struct {
-	zs    *zsocket.ZSocket
+	zs    *ZSocket
 	bRead bool
 	port  int
 }
@@ -41,7 +40,7 @@ func (c *zsockIf) Open(ip net.IP, port int, ifn *net.Interface) (err error) {
 	if c.zs != nil {
 		return errOpened
 	}
-	c.zs, err = zsocket.NewZSocket(ifn.Index, zsocket.ENABLE_RX, 2048, 4096, nettypes.IPv4)
+	c.zs, err = NewZSocket(ifn.Index, ENABLE_RX, 2048, 4096, ETH_IP)
 	if err != nil {
 		return
 	}
@@ -95,11 +94,12 @@ func (c *zsockIf) Listen(fx func([]byte, *net.UDPAddr)) {
 	// or not you want the tx ring, rx ring, or both enabled, and what nettype you are listening
 	// for.
 	rAddr := net.UDPAddr{IP: net.IPv4zero}
-	c.zs.Listen(func(f *nettypes.Frame, frameLen, capturedLen uint16) {
+	c.zs.Listen(func(fb []byte, frameLen, capturedLen uint16) {
+		ln := capturedLen
+		f := nettypes.Frame(fb[:ln])
 		if f.MACEthertype(0) != nettypes.IPv4 {
 			return
 		}
-		ln := capturedLen
 		mPay, mOff := f.MACPayload(0)
 		ln -= mOff
 		ip := nettypes.IPv4_P(mPay)
