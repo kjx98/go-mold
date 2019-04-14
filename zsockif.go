@@ -41,7 +41,7 @@ func (c *zsockIf) Open(ip net.IP, port int, ifn *net.Interface) (err error) {
 	if c.zs != nil {
 		return errOpened
 	}
-	c.zs, err = NewZSocket(ifn.Index, ENABLE_RX, 2048, 4096, ETH_IP)
+	c.zs, err = NewZSocket(ifn.Index, ENABLE_RX, 2048, 8192, ETH_IP)
 	if err != nil {
 		return
 	}
@@ -106,7 +106,7 @@ func (c *zsockIf) Listen(fx func([]byte, *net.UDPAddr)) {
 	rAddr := net.UDPAddr{IP: net.IPv4zero}
 	c.zs.Listen(func(fb []byte, frameLen, capturedLen uint16) {
 		ln := capturedLen
-		f := nettypes.Frame(fb)
+		f := nettypes.Frame(fb[:ln])
 		if f.MACEthertype(0) != nettypes.IPv4 {
 			tryLog("MAC EtherType dismatch")
 			return
@@ -118,8 +118,11 @@ func (c *zsockIf) Listen(fx func([]byte, *net.UDPAddr)) {
 			tryLog("IP Proto dismatch")
 			return
 		}
+		if ln < ip.Length() {
+			tryLog("IP length too short")
+			return
+		}
 		iPay, iOff := ip.Payload()
-		ln -= iOff
 		udp := nettypes.UDP_P(iPay)
 		ips := ip.SourceIP()
 		rAddr.IP = net.IPv4(ips[0], ips[1], ips[2], ips[3])
@@ -128,9 +131,21 @@ func (c *zsockIf) Listen(fx func([]byte, *net.UDPAddr)) {
 			return
 		}
 		rAddr.Port = int(udp.SourcePort())
+		/*
+			if time.Now().Unix() > logTime+1 {
+				logTime = time.Now().Unix()
+				log.Info("IP packet:", ip.String(ln, 4))
+			}
+		*/
+		ln -= iOff
+		if ln < udp.Length() {
+			tryLog("UDP length too short")
+			return
+		}
 		// we don't verify checksum
 		uBuff, uOff := udp.Payload()
 		ln -= uOff
-		fx(uBuff[:ln], &rAddr)
+		//fx(uBuff[:ln], &rAddr)
+		fx(uBuff, &rAddr)
 	})
 }

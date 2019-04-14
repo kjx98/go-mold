@@ -55,7 +55,8 @@ func (i IPv4_P) Bytes() []byte {
 }
 
 func (i IPv4_P) String(frameLen uint16, indent int) string {
-	return fmt.Sprintf(padLeft("IP Len   : %d\n", "\t", indent), frameLen) +
+	return fmt.Sprintf(padLeft("IP Len   : %d/%d\n", "\t", indent),
+		frameLen, i.Length()) +
 		fmt.Sprintf(padLeft("Version  : %d\n", "\t", indent), i.Version()) +
 		fmt.Sprintf(padLeft("IHL      : %d\n", "\t", indent), i.IHL()) +
 		fmt.Sprintf(padLeft("Length   : %d\n", "\t", indent), i.Length()) +
