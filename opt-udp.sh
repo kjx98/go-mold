@@ -13,6 +13,6 @@ sysctl -p
 
 # increase memlock for zsocket
 # /etc/security/limits.conf
-#*       soft memlock 8192
+#*       soft memlock 16384
 #*       hard memlock 918380
 

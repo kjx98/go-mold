@@ -182,6 +182,28 @@ type SockaddrInet4 struct {
 	Addr [4]byte
 }
 
+type HardwareAddr []byte
+
+func (adr HardwareAddr) String() string {
+	return fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x", adr[0], adr[1],
+		adr[2], adr[3], adr[4], adr[5])
+}
+
+func GetMulticastHWAddr(adr net.IP) HardwareAddr {
+	if ip4 := adr.To4(); ip4 == nil {
+		return nil
+	} else {
+		ret := make([]byte, 6)
+		ret[0] = 1
+		ret[1] = 0
+		ret[2] = 0x5e
+		ret[3] = ip4[1] & 0x7f
+		ret[4] = ip4[2]
+		ret[5] = ip4[3]
+		return HardwareAddr(ret)
+	}
+}
+
 //type SockaddrInet4 = syscall.SockaddrInet4
 
 func (adr *SockaddrInet4) IP() string {

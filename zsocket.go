@@ -158,9 +158,11 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 	}
 
 	zs := new(ZSocket)
-	eT := C.htons(C.ushort(ethType))
+	eT := int(C.htons(C.ushort(ethType)))
 	// in Linux PF_PACKET is actually defined by AF_PACKET.
-	sock, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(eT))
+	// SOCK_DGRAM not work, no packet listened
+	//sock, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_DGRAM, eT)
+	sock, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, eT)
 	if err != nil {
 		return nil, err
 	}
