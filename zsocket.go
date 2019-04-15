@@ -86,7 +86,6 @@ func init() {
 	if r > 0 {
 		_TX_START += (TPACKET_ALIGNMENT - r)
 	}
-	log.Info("AF_PACKET Ring TX_START", _TX_START)
 }
 
 func PacketOffset() int {
@@ -107,9 +106,9 @@ func errnoErr(e syscall.Errno) error {
 	return e
 }
 
-func copyFx(dst, src []byte, len uint16) uint16 {
+func copyFx(dst, src []byte, len int) uint16 {
 	copy(dst, src)
-	return len
+	return uint16(len)
 }
 
 // IZSocket is an interface for interacting with eth-iface like
@@ -161,6 +160,7 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 		return nil, fmt.Errorf("maxTotalFrames must be at least 16, and be a multiple of 8")
 	}
 
+	log.Info("AF_PACKET Ring TX_START", _TX_START)
 	zs := new(ZSocket)
 	eT := int(C.htons(C.ushort(ethType)))
 	// in Linux PF_PACKET is actually defined by AF_PACKET.
@@ -342,7 +342,7 @@ func (zs *ZSocket) WriteToBuffer(buf []byte, l uint16) (int32, error) {
 	if l > zs.txFrameSize {
 		return -1, fmt.Errorf("the length of the write exceeds the size of the TX frame")
 	}
-	if l < 0 {
+	if l <= 0 {
 		return zs.CopyToBuffer(buf, uint16(len(buf)), copyFx)
 	}
 	return zs.CopyToBuffer(buf[:l], l, copyFx)
@@ -352,7 +352,7 @@ func (zs *ZSocket) WriteToBuffer(buf []byte, l uint16) (int32, error) {
 // ring buffer. However, it can take a function argument, that will
 // be passed the raw TX byes so that custom logic can be applied
 // to copying the frame (for example, encrypting the frame).
-func (zs *ZSocket) CopyToBuffer(buf []byte, l uint16, copyFx func(dst, src []byte, l uint16) uint16) (int32, error) {
+func (zs *ZSocket) CopyToBuffer(buf []byte, l uint16, copyFx func(dst, src []byte, l int) uint16) (int32, error) {
 	if !zs.txEnabled {
 		return -1, fmt.Errorf("the TX ring is not enabled on this socket")
 	}
@@ -360,7 +360,7 @@ func (zs *ZSocket) CopyToBuffer(buf []byte, l uint16, copyFx func(dst, src []byt
 	if err != nil {
 		return -1, err
 	}
-	cL := copyFx(tx.txStart, buf, l)
+	cL := copyFx(tx.txStart, buf, int(l))
 	tx.setTpLen(cL)
 	tx.setTpSnapLen(cL)
 	written := atomic.AddInt32(&zs.txWritten, 1)
@@ -389,12 +389,16 @@ func (zs *ZSocket) FlushFrames() (uint, error, []error) {
 	written := atomic.SwapInt32(&zs.txWritten, 0)
 	framesFlushed := uint(0)
 	frameNum := int32(zs.frameNum)
-	z := uintptr(0)
 	for t, w := index, written; w > 0; w-- {
 		zs.txFrames[t].txSet()
 		t = (t + 1) % frameNum
 	}
-	if _, _, e1 := syscall.Syscall6(syscall.SYS_SENDTO, uintptr(zs.socket), z, z, z, z, z); e1 != 0 {
+	/*
+		if _, _, e1 := syscall.Syscall6(syscall.SYS_SENDTO, uintptr(zs.socket), z, z, z, z, z); e1 != 0 {
+			return framesFlushed, e1, nil
+		}
+	*/
+	if _, e1 := Sendto(zs.socket, nil, 0, nil); e1 != nil {
 		return framesFlushed, e1, nil
 	}
 	var errs []error = nil

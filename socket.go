@@ -14,6 +14,8 @@ import (
 //#include <sys/types.h>          /* See NOTES */
 //#include <sys/socket.h>
 //#include <netinet/in.h>
+//#include <netinet/ip.h>
+//#include <netinet/udp.h>
 //#include <netpacket/packet.h>
 //#include <net/ethernet.h>
 //#include <linux/filter.h>
@@ -126,6 +128,25 @@ func getIfAddr(ifn *net.Interface) (net.IP, error) {
 		}
 	}
 	return ret, nil
+}
+
+func buildIP(buff []byte, len int) {
+	buff[0] = 0x45
+	ipHdr := (*C.struct_iphdr)(unsafe.Pointer(&buff[0]))
+	//ipHdr.tos =
+	ipHdr.tot_len = C.htons(C.ushort(len + 28))
+	ipHdr.id = 0
+	ipHdr.frag_off = 0
+	ipHdr.ttl = 2
+	ipHdr.protocol = 0x11
+}
+
+func buildUDP(buff []byte, dstPort, len int) {
+	udpHdr := (*C.struct_udphdr)(unsafe.Pointer(&buff[0]))
+	udpHdr.source = C.htons(C.ushort(dstPort + 1))
+	udpHdr.dest = C.htons(C.ushort(dstPort))
+	udpHdr.len = C.htons(C.ushort(len))
+	udpHdr.check = 0
 }
 
 func Sleep(interv time.Duration) {
@@ -258,20 +279,24 @@ func Recvfrom(fd int, p []byte, flags int) (n int, from *SockaddrInet4, err erro
 	return
 }
 
-func Sendto(fd int, p []byte, flags int, to *SockaddrInet4) (int, error) {
+func Sendto(fd int, p []byte, flags int, to *SockaddrInet4) (ret int, err error) {
 	taddr := C.struct_sockaddr_in{}
-	C.newSockaddrIn(C.int(to.Port), unsafe.Pointer(&to.Addr[0]), &taddr)
-	ret := C.sendto(C.int(fd), unsafe.Pointer(&p[0]), C.size_t(len(p)),
-		C.int(flags), (*C.struct_sockaddr)(unsafe.Pointer(&taddr)),
-		C.uint(unsafe.Sizeof(taddr)))
-	var err error
+	if to == nil || p == nil {
+		ret = int(C.sendto(C.int(fd), C.NULL, 0, 0,
+			(*C.struct_sockaddr)(C.NULL), 0))
+	} else {
+		C.newSockaddrIn(C.int(to.Port), unsafe.Pointer(&to.Addr[0]), &taddr)
+		ret = int(C.sendto(C.int(fd), unsafe.Pointer(&p[0]), C.size_t(len(p)),
+			C.int(flags), (*C.struct_sockaddr)(unsafe.Pointer(&taddr)),
+			C.uint(unsafe.Sizeof(taddr))))
+	}
 	if ret < 0 {
 		errN := C.errNo()
 		if errN != 0 && errN != C.EAGAIN && errN != C.EWOULDBLOCK {
 			err = syscall.Errno(C.errNo())
 		}
 	}
-	return int(ret), err
+	return
 }
 
 func ReserveRecvBuf(fd int) {

@@ -164,7 +164,7 @@ func (i IPv4_P) CalculateChecksum() uint16 {
 }
 
 func (i IPv4_P) PacketCorrupt() bool {
-	return i.Checksum() == i.CalculateChecksum()
+	return i.Checksum() != i.CalculateChecksum()
 }
 
 func (i IPv4_P) SourceIP() net.IP {
