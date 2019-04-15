@@ -368,6 +368,7 @@ func (c *Server) ServerLoop() {
 			off := 0
 			for off < nObuff {
 				if n, err := c.conn.MSend(obuffs[off:nObuff]); err != nil {
+					log.Error("MSend", err)
 					break
 				} else {
 					//lastSend = time.Now()
