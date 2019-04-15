@@ -9,7 +9,7 @@ import (
 func TestCopyUDP(t *testing.T) {
 	buff := make([]byte, 256)
 	srcBuf := []byte("test only")
-	ifName := "wlp3s0"
+	ifName := "lo"
 	var ifn *net.Interface
 	if ifnn, err := net.InterfaceByName(ifName); err != nil {
 		t.Errorf("Ifn(%s) error: %v", ifName, err)
