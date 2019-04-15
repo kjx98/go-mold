@@ -52,7 +52,7 @@ func (c *zsockIf) Open(ip net.IP, port int, ifn *net.Interface) (err error) {
 	log.Info("Using zsocket, listen on", laddr)
 	//log.Info("Using zsocket, max PacketSize:", c.zs.MaxPacketSize())
 	fd := c.zs.Fd()
-	ReserveRecvBuf(fd)
+	//ReserveRecvBuf(fd)
 	if err := setBPF(fd, port); err != nil {
 		log.Info("setBPF", err)
 	}

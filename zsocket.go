@@ -77,8 +77,11 @@ var (
 //};
 */
 func init() {
-	tpHdr := C.struct_tpacket_hdr{}
-	_TX_START = int(unsafe.Sizeof(tpHdr))
+	/*
+		tpHdr := C.struct_tpacket_hdr{}
+		_TX_START = int(unsafe.Sizeof(tpHdr))
+	*/
+	_TX_START = int(C.TPACKET_HDRLEN)
 	r := _TX_START % TPACKET_ALIGNMENT
 	if r > 0 {
 		_TX_START += (TPACKET_ALIGNMENT - r)
@@ -262,7 +265,7 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 			frLoc = i * int(zs.frameSize)
 			tx := &ringFrame{}
 			tx.raw = zs.raw[frLoc : frLoc+int(zs.frameSize)]
-			tx.txStart = tx.raw[_TX_START:]
+			tx.txStart = tx.raw[int(C.TPACKET_HDRLEN):]
 			zs.txFrames = append(zs.txFrames, tx)
 		}
 	}
@@ -292,7 +295,7 @@ func (zs *ZSocket) MaxPackets() int32 {
 
 // Returns the frame size in bytes
 func (zs *ZSocket) MaxPacketSize() uint16 {
-	return zs.frameSize - uint16(_TX_START)
+	return zs.frameSize - uint16(C.TPACKET_HDRLEN)
 }
 
 // Returns the amount of packets, written to the tx ring, that
