@@ -15,7 +15,6 @@ import (
 //#include <sys/socket.h>
 //#include <netinet/in.h>
 //#include <netinet/ip.h>
-//#include <netinet/udp.h>
 //#include <netpacket/packet.h>
 //#include <net/ethernet.h>
 //#include <linux/filter.h>
@@ -136,17 +135,21 @@ func buildIP(buff []byte, len int) {
 	//ipHdr.tos =
 	ipHdr.tot_len = C.htons(C.ushort(len + 28))
 	ipHdr.id = 0
-	ipHdr.frag_off = 0
+	ipHdr.frag_off = C.htons(0x4000)
 	ipHdr.ttl = 2
 	ipHdr.protocol = 0x11
 }
 
-func buildUDP(buff []byte, dstPort, len int) {
-	udpHdr := (*C.struct_udphdr)(unsafe.Pointer(&buff[0]))
-	udpHdr.source = C.htons(C.ushort(dstPort + 1))
-	udpHdr.dest = C.htons(C.ushort(dstPort))
-	udpHdr.len = C.htons(C.ushort(len))
-	udpHdr.check = 0
+type udpHeader struct {
+	Source, Dest, Len, Check uint16
+}
+
+func buildUDP(buff []byte, dstPort, l int) {
+	udpHdr := (*udpHeader)(unsafe.Pointer(&buff[0]))
+	udpHdr.Source = uint16(C.htons(C.ushort(dstPort + 1)))
+	udpHdr.Dest = uint16(C.htons(C.ushort(dstPort)))
+	udpHdr.Len = uint16(C.htons(C.ushort(l + 8)))
+	udpHdr.Check = 0
 }
 
 func Sleep(interv time.Duration) {

@@ -15,6 +15,7 @@ type zsockIf struct {
 	srcIP [4]byte
 	bRead bool
 	port  int
+	fake  bool
 }
 
 func newZSockIf() McastConn {
@@ -77,12 +78,14 @@ func (c *zsockIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) 
 	}
 	c.zs, err = NewZSocket(ifn.Index, ENABLE_TX, 2048, 4096, ETH_IP)
 	if err != nil {
-		return
+		// if in testing, no return now
+		if !c.fake {
+			return
+		}
 	}
 	c.port = port
 	c.src = HardwareAddr(make([]byte, 6))
 	copy(c.src, ifn.HardwareAddr)
-	log.Info("Using zsocket, mcast on", c.src)
 	if adr, err := getIfAddr(ifn); err == nil {
 		copy(c.srcIP[:], adr.To4())
 		log.Infof("Use %s for Multicast interface", adr)
@@ -91,6 +94,7 @@ func (c *zsockIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) 
 		copy(c.dstIP[:], dst)
 	}
 	c.dst = GetMulticastHWAddr(ip)
+	log.Info("Using zsocket, via", c.src, "mcast on", c.dst)
 	//log.Info("Using zsocket, max PacketSize:", c.zs.MaxPacketSize())
 	c.bRead = false
 	return nil
@@ -100,27 +104,44 @@ func (c *zsockIf) Send(buff []byte) (int, error) {
 	if c.bRead {
 		return 0, errModeRW
 	}
-	return 0, errNotSupport
+	n := len(buff)
+	if _, err := c.zs.CopyToBuffer(buff, uint16(len(buff)), c.copyFx); err != nil {
+		return 0, err
+	}
+	if _, err, _ := c.zs.FlushFrames(); err != nil {
+		log.Error("zsocket flushFrame", err)
+		return 0, err
+	}
+	return n, nil
 }
 
-func (c *zsockIf) copyFx(dst, src []byte, len int) uint16 {
-	if len > maxUDPsize {
+func (c *zsockIf) copyFx(dst, src []byte, l int) uint16 {
+	if l <= 0 {
+		l = len(src)
+	}
+	if l > maxUDPsize {
 		return 0
 	}
 	copy(dst, c.dst)
 	copy(dst[6:], c.src)
 	dst[12] = 8
 	dst[13] = 0
-	buildIP(dst[14:], len)
+	buildIP(dst[14:], l)
 	copy(dst[14+12:], c.srcIP[:])
 	copy(dst[14+16:], c.dstIP[:])
 	ip := nettypes.IPv4_P(dst[14:])
 	ckSum := ip.CalculateChecksum()
 	dst[14+10] = byte(ckSum >> 8)
 	dst[14+11] = byte(ckSum & 0xff)
-	buildUDP(dst[14+20:], c.port, len)
+	buildUDP(dst[14+20:], c.port, l)
 	copy(dst[14+28:], src)
-	return uint16(len + 28 + 14)
+	/*
+		if time.Now().Unix() > logTime+1 {
+			logTime = time.Now().Unix()
+			log.Info("IP packet:", ip.String(uint16(l+28), 4))
+		}
+	*/
+	return uint16(l + 28 + 14)
 }
 
 func (c *zsockIf) Recv(buff []byte) (int, *net.UDPAddr, error) {
@@ -144,6 +165,7 @@ func (c *zsockIf) MSend(buffs []Packet) (int, error) {
 	if n > 0 {
 		if _, err, _ := c.zs.FlushFrames(); err != nil {
 			log.Error("zsocket flushFrame", err)
+			return 0, err
 		}
 		return n, nil
 	}

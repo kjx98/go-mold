@@ -77,10 +77,8 @@ var (
 //};
 */
 func init() {
-	/*
-		tpHdr := C.struct_tpacket_hdr{}
-		_TX_START = int(unsafe.Sizeof(tpHdr))
-	*/
+	//tpHdr := C.struct_tpacket_hdr{}
+	//_TX_START = int(unsafe.Sizeof(tpHdr))
 	_TX_START = int(C.TPACKET_HDRLEN)
 	r := _TX_START % TPACKET_ALIGNMENT
 	if r > 0 {
