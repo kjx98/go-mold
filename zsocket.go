@@ -2,7 +2,6 @@ package MoldUDP
 
 import (
 	"fmt"
-	//"github.com/kjx98/go-mold/nettypes"
 	"os"
 	"runtime"
 	"sync/atomic"
@@ -40,12 +39,12 @@ const (
 	ETH_IPX   = C.ETH_P_IPX
 	ETH_IPV6  = C.ETH_P_IPV6
 
-	_PACKET_VERSION = 0xa
-	_PACKET_RX_RING = 0x5
-	_PACKET_TX_RING = 0xd
-	_PACKET_LOSS    = 0xe
+	//_PACKET_VERSION = 0xa
+	//_PACKET_RX_RING = 0x5
+	//_PACKET_TX_RING = 0xd
+	//_PACKET_LOSS    = 0xe
 
-	_TPACKET_V1 = 0
+	//_TPACKET_V1 = 0
 	// tp_status in <linux/if_packet.h>
 	/* rx status */
 	/* tx status */
@@ -55,17 +54,18 @@ const (
 )
 
 var (
-	_TP_MAC_START     int
-	_TP_MAC_STOP      int
-	_TP_LEN_START     int
-	_TP_LEN_STOP      int
-	_TP_SNAPLEN_START int
-	_TP_SNAPLEN_STOP  int
+	//_TP_MAC_START     int
+	//_TP_MAC_STOP      int
+	//_TP_LEN_START     int
+	//_TP_LEN_STOP      int
+	//_TP_SNAPLEN_START int
+	//_TP_SNAPLEN_STOP  int
 
 	_TX_START int
 )
 
 // the top of every frame in the ring buffer looks like this:
+/* struct tpacket_hdr in <linux/if_packet.h>
 //struct tpacket_hdr {
 //         unsigned long   tp_status;
 //         unsigned int    tp_len;
@@ -75,6 +75,7 @@ var (
 //         unsigned int    tp_sec;
 //         unsigned int    tp_usec;
 //};
+*/
 func init() {
 	tpHdr := C.struct_tpacket_hdr{}
 	_TX_START = int(unsafe.Sizeof(tpHdr))
@@ -161,9 +162,10 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 	eT := int(C.htons(C.ushort(ethType)))
 	// in Linux PF_PACKET is actually defined by AF_PACKET.
 	// SOCK_DGRAM not work, no packet listened
-	//sock, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_DGRAM, eT)
-	sock, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, eT)
+	//sock, err := Socket(C.AF_PACKET, C.SOCK_DGRAM, eT)
+	sock, err := Socket(C.AF_PACKET, C.SOCK_RAW, eT)
 	if err != nil {
+		log.Error("socket AF_PACKET", err)
 		return nil, err
 	}
 	zs.socket = sock
@@ -172,6 +174,7 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 	sll.Ifindex = ethIndex
 	sll.Halen = _ETH_ALEN
 	if err := syscall.Bind(sock, &sll); err != nil {
+		log.Error("bind AF_PACKET", err)
 		return nil, err
 	}
 
@@ -179,9 +182,22 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 	zs.txEnabled = options&ENABLE_TX == ENABLE_TX
 	zs.txLossDisabled = options&DISABLE_TX_LOSS == DISABLE_TX_LOSS
 
-	if err := syscall.SetsockoptInt(sock, syscall.SOL_PACKET, _PACKET_VERSION, _TPACKET_V1); err != nil {
-		return nil, err
+	if vv, err := GetsockoptInt(sock, C.SOL_PACKET, C.PACKET_VERSION); err == nil {
+		log.Info("PACKET_VERSION is", vv)
+		if vv != C.TPACKET_V1 {
+			if err := SetsockoptInt(sock, C.SOL_PACKET, C.PACKET_VERSION, C.TPACKET_V1); err != nil {
+				log.Error("Set PACKET_VERSION", err)
+				return nil, err
+			}
+		}
 	}
+	/*
+		if err := syscall.SetsockoptInt(sock, C.SOL_PACKET, C.PACKET_VERSION, C.TPACKET_V1); err != nil {
+				log.Error("set PACKET_VERSION", err)
+				return nil, err
+			}
+		}
+	*/
 
 	req := &tpacketReq{}
 	pageSize := uint(os.Getpagesize())
@@ -197,20 +213,20 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 	req.frameNum = (req.blockSize / req.frameSize) * req.blockNum
 	reqP := req.getPointer()
 	if zs.rxEnabled {
-		_, _, e1 := syscall.Syscall6(uintptr(syscall.SYS_SETSOCKOPT), uintptr(sock), uintptr(syscall.SOL_PACKET), uintptr(_PACKET_RX_RING), uintptr(reqP), uintptr(req.size()), 0)
+		_, _, e1 := syscall.Syscall6(uintptr(syscall.SYS_SETSOCKOPT), uintptr(sock), uintptr(C.SOL_PACKET), uintptr(C.PACKET_RX_RING), uintptr(reqP), uintptr(req.size()), 0)
 		if e1 != 0 {
 			return nil, errnoErr(e1)
 		}
 	}
 	if zs.txEnabled {
-		_, _, e1 := syscall.Syscall6(uintptr(syscall.SYS_SETSOCKOPT), uintptr(sock), uintptr(syscall.SOL_PACKET), uintptr(_PACKET_TX_RING), uintptr(reqP), uintptr(req.size()), 0)
+		_, _, e1 := syscall.Syscall6(uintptr(syscall.SYS_SETSOCKOPT), uintptr(sock), uintptr(C.SOL_PACKET), uintptr(C.PACKET_TX_RING), uintptr(reqP), uintptr(req.size()), 0)
 		if e1 != 0 {
 			return nil, errnoErr(e1)
 		}
 		/*
 			Can't get this to work for some reason
 			if !zs.txLossDisabled {
-				if err := syscall.SetsockoptInt(sock, syscall.SOL_PACKET, _PACKET_LOSS, 1); err != nil {
+				if err := SetsockoptInt(sock, C.SOL_PACKET, C.PACKET_LOSS, 1); err != nil {
 					return nil, err
 				}
 			}*/
