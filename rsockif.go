@@ -21,11 +21,12 @@ type rsockIf struct {
 	ifIndex int
 	dst     HardwareAddr
 	src     HardwareAddr
+	sll     *syscall.SockaddrLinklayer
 	dstIP   [4]byte
 	srcIP   [4]byte
 	port    int
 	bRead   bool
-	buffs   [maxBatch]Packet
+	buff    []byte
 }
 
 func newRSockIf() McastConn {
@@ -90,6 +91,14 @@ func (c *rsockIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) 
 		copy(c.dstIP[:], dst)
 	}
 	c.dst = GetMulticastHWAddr(ip)
+	c.sll = &syscall.SockaddrLinklayer{}
+	c.sll.Protocol = uint16(C.htons(C.ETH_P_IP))
+	c.sll.Ifindex = c.ifIndex
+	c.sll.Halen = C.ETH_ALEN
+	copy(c.sll.Addr[:], c.dst)
+	c.buff = make([]byte, 2048)
+	copy(c.buff[:6], c.dst)
+	copy(c.buff[6:12], c.src)
 	log.Info("Using rsocket, via", c.src, "mcast on", c.dst)
 
 	c.bRead = false
@@ -117,20 +126,29 @@ func (c *rsockIf) Send(buff []byte) (int, error) {
 	if c.bRead {
 		return 0, errModeRW
 	}
-	sll := syscall.SockaddrLinklayer{}
-	sll.Protocol = uint16(C.htons(C.ETH_P_IP))
-	sll.Ifindex = c.ifIndex
-	sll.Halen = C.ETH_ALEN
-	copy(sll.Addr[:], c.dst)
-	return len(buff), syscall.Sendto(c.fd, buff, 0, &sll)
+	n := len(buff)
+	if n == 0 || n > maxUDPsize {
+		return 0, errUDPlen
+	}
+	buildRawUDP(c.buff, n, c.port, c.srcIP[:], c.dstIP[:])
+	copy(c.buff[14+28:], buff)
+	return n, syscall.Sendto(c.fd, c.buff[:n+14+28], 0, c.sll)
 }
 
 func (c *rsockIf) MSend(buffs []Packet) (int, error) {
 	if c.bRead {
 		return 0, errModeRW
 	}
-	return 0, nil
-	//return Sendmmsg(c.fd, buffs, &c.dst)
+	cnt := len(buffs)
+	if cnt == 0 {
+		return 0, nil
+	}
+	n := len(buffs[0])
+	if len(buffs[cnt-1]) != n {
+		cnt--
+	}
+	buildRawUDP(c.buff, n, c.port, c.srcIP[:], c.dstIP[:])
+	return Sendmmsg2(c.fd, buffs[:cnt], c.buff[:14+28], c.ifIndex)
 }
 
 func (c *rsockIf) MRecv() ([]Packet, *net.UDPAddr, error) {

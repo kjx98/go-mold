@@ -2,13 +2,14 @@ package MoldUDP
 
 import (
 	"fmt"
-	"github.com/kjx98/go-mold/nettypes"
 	"net"
 	"runtime"
 	"strings"
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/kjx98/go-mold/nettypes"
 )
 
 //#cgo LDFLAGS: -ldl
@@ -16,8 +17,8 @@ import (
 //#include <sys/socket.h>
 //#include <netinet/in.h>
 //#include <netinet/ip.h>
-//#include <netpacket/packet.h>
 //#include <net/ethernet.h>
+//#include <linux/if_packet.h>
 //#include <linux/filter.h>
 //#include <unistd.h>
 //#include <string.h>
@@ -106,6 +107,13 @@ inline void buildIP(char *buff,int len, void *src, void *dst) {
 	memcpy(&ipHdr->daddr, dst, 4);
 }
 
+inline void setSockaddrl2(struct sockaddr_ll *sll, void *sbuf, int ifIndex) {
+	sll->sll_family = AF_PACKET;
+	sll->sll_protocol = htons(ETH_P_IP);
+	sll->sll_ifindex = ifIndex;
+	sll->sll_halen = ETH_ALEN;
+	memcpy(sll->sll_addr, sbuf, ETH_ALEN);
+}
 */
 import "C"
 
@@ -453,6 +461,34 @@ func SetBroadcast(fd int, bLoop bool) error {
 		iVal = 1
 	}
 	return SetsockoptInt(fd, C.SOL_SOCKET, C.SO_BROADCAST, iVal)
+}
+
+func Sendmmsg2(fd int, bufs []Packet, pktHdr []byte, ifIndex int) (cnt int, err error) {
+	taddr := C.struct_sockaddr_ll{}
+	C.setSockaddrl2(&taddr, unsafe.Pointer(&pktHdr[0]), C.int(ifIndex))
+	bSize := len(bufs)
+	if bSize > C.MAX_BATCH {
+		bSize = C.MAX_BATCH
+	}
+	for i := 0; i < bSize; i++ {
+		buf := bufs[i]
+		C.iovec[i][0].iov_base = unsafe.Pointer(&pktHdr[0])
+		C.iovec[i][0].iov_len = C.size_t(len(pktHdr))
+		C.iovec[i][1].iov_base = unsafe.Pointer(&buf[0])
+		C.iovec[i][1].iov_len = C.size_t(len(buf))
+		C.dgrams[i].msg_len = C.uint(len(buf) + len(pktHdr))
+		C.dgrams[i].msg_hdr.msg_iov = &(C.iovec[i][0])
+		C.dgrams[i].msg_hdr.msg_iovlen = 2
+		C.dgrams[i].msg_hdr.msg_name = unsafe.Pointer(&taddr)
+		C.dgrams[i].msg_hdr.msg_namelen = C.socklen_t(unsafe.Sizeof(taddr))
+	}
+	res := C.sendmmsg(C.int(fd), &(C.dgrams[0]), C.uint(bSize), 0)
+	if res < 0 {
+		err = syscall.Errno(C.errNo())
+	} else {
+		cnt = int(res)
+	}
+	return
 }
 
 func Sendmmsg(fd int, bufs []Packet, to *SockaddrInet4) (cnt int, err error) {

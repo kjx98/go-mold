@@ -29,6 +29,7 @@ var (
 	errNotSupport = errors.New("Interface not support")
 	errOpened     = errors.New("Already opened")
 	errModeRW     = errors.New("Open/OpenSend for Recv/Send")
+	errUDPlen     = errors.New("UDP payload length error")
 )
 
 type netIf struct {
@@ -41,6 +42,8 @@ func NewIf(netMode string) (netif McastConn) {
 	switch netMode {
 	case "sock", "socket":
 		netif = newSockIf()
+	case "rsock", "rsocket":
+		netif = newRSockIf()
 	case "zsock", "izsocket":
 		netif = newZSockIf()
 	case "net":

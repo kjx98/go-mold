@@ -49,6 +49,7 @@ func TestBuildRawUDP(t *testing.T) {
 		t.Errorf("IP checksum dismatch: %x expect %x", ip.Checksum(),
 			ip.CalculateChecksum())
 	}
+	copy(buff[14+28:], srcBuf)
 	nn := n + 28 + 14
 	f := nettypes.Frame(buff[:nn])
 	t.Log("dump Ether frame:", f.String(uint16(nn), 0))
