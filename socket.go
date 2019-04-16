@@ -2,6 +2,7 @@ package MoldUDP
 
 import (
 	"fmt"
+	"github.com/kjx98/go-mold/nettypes"
 	"net"
 	"runtime"
 	"strings"
@@ -48,7 +49,7 @@ inline void copyAddr(struct sockaddr_in *addr, void *dstAddr) {
 	memcpy(dstAddr, &addr->sin_addr, 4);
 }
 
-struct	iovec iovec[MAX_BATCH][1];
+struct	iovec iovec[MAX_BATCH][2];
 struct	mmsghdr	dgrams[MAX_BATCH];
 struct timespec timeo={0,1000000};
 struct sock_filter filter[]={
@@ -142,17 +143,45 @@ func getIfAddr(ifn *net.Interface) (net.IP, error) {
 	return ret, nil
 }
 
-func buildIP(buff []byte, l int, src, dst []byte) {
-	C.buildIP((*C.char)(unsafe.Pointer(&buff[0])), C.int(l),
-		unsafe.Pointer(&src[0]), unsafe.Pointer(&dst[0]))
+type ipHeader struct {
+	IhlVer                byte
+	tos                   byte
+	tot_len, id, frag_off uint16
+	ttl, protocol         byte
+	check                 uint16
+	saddr                 [4]byte
+	daddr                 [4]byte
+}
+
+func buildRawUDP(buff []byte, udpLen int, port int, src, dst []byte) {
+	// set MACEtherType to IPv4
+	buff[12] = 8
+	buff[13] = 0
+	buildIP(buff[14:], udpLen, src, dst)
+	ip := nettypes.IPv4_P(buff[14:])
+	ckSum := ip.CalculateChecksum()
+	buff[14+10] = byte(ckSum >> 8)
+	buff[14+11] = byte(ckSum & 0xff)
+	buildUDP(buff[14+20:], port, udpLen)
+}
+
+func buildIP(buff []byte, udpLen int, src, dst []byte) {
+	ipHdr := (*ipHeader)(unsafe.Pointer(&buff[0]))
+	ipHdr.IhlVer = 0x45
+	ipHdr.tos = 0
+	ipHdr.tot_len = uint16(C.htons(C.ushort(udpLen + 28)))
+	ipHdr.id = 0
+	ipHdr.frag_off = uint16(C.htons(0x4000))
+	ipHdr.ttl = 2
+	ipHdr.protocol = 0x11
+	ipHdr.check = 0
+	copy(ipHdr.saddr[:], src)
+	copy(ipHdr.daddr[:], dst)
 	/*
-		buff[0] = 0x45
-		ipHdr := (*C.struct_iphdr)(unsafe.Pointer(&buff[0]))
-		ipHdr.tot_len = C.htons(C.ushort(l + 28))
-		ipHdr.id = 0
-		ipHdr.frag_off = C.htons(0x4000)
-		ipHdr.ttl = 2
-		ipHdr.protocol = 0x11
+		C.buildIP((*C.char)(unsafe.Pointer(&buff[0])), C.int(l),
+			unsafe.Pointer(&src[0]), unsafe.Pointer(&dst[0]))
+			buff[0] = 0x45
+			ipHdr := (*C.struct_iphdr)(unsafe.Pointer(&buff[0]))
 	*/
 }
 
@@ -160,11 +189,11 @@ type udpHeader struct {
 	Source, Dest, Len, Check uint16
 }
 
-func buildUDP(buff []byte, dstPort, l int) {
+func buildUDP(buff []byte, dstPort, dataLen int) {
 	udpHdr := (*udpHeader)(unsafe.Pointer(&buff[0]))
 	udpHdr.Source = uint16(C.htons(C.ushort(dstPort + 1)))
 	udpHdr.Dest = uint16(C.htons(C.ushort(dstPort)))
-	udpHdr.Len = uint16(C.htons(C.ushort(l + 8)))
+	udpHdr.Len = uint16(C.htons(C.ushort(dataLen + 8)))
 	udpHdr.Check = 0
 }
 

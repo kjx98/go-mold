@@ -124,25 +124,15 @@ func (c *zsockIf) copyFx(dst, src []byte, l int) uint16 {
 	}
 	copy(dst, c.dst)
 	copy(dst[6:], c.src)
-	dst[12] = 8
-	dst[13] = 0
-	buildIP(dst[14:], l, c.srcIP[:], c.dstIP[:])
-	/*
-		copy(dst[14+12:], c.srcIP[:])
-		copy(dst[14+16:], c.dstIP[:])
-	*/
-	ip := nettypes.IPv4_P(dst[14:])
-	ckSum := ip.CalculateChecksum()
-	dst[14+10] = byte(ckSum >> 8)
-	dst[14+11] = byte(ckSum & 0xff)
-	buildUDP(dst[14+20:], c.port, l)
+	//dst[12] = 8
+	//dst[13] = 0
+	buildRawUDP(dst, l, c.port, c.srcIP[:], c.dstIP[:])
 	copy(dst[14+28:], src)
-	/*
-		if time.Now().Unix() > logTime+1 {
-			logTime = time.Now().Unix()
-			log.Info("IP packet:", ip.String(uint16(l+28), 4))
-		}
-	*/
+	if time.Now().Unix() > logTime+1 {
+		logTime = time.Now().Unix()
+		f := nettypes.Frame(dst[:l+42])
+		log.Info("IP packet:", f.String(uint16(l+42), 0))
+	}
 	return uint16(l + 28 + 14)
 }
 
@@ -208,7 +198,7 @@ func (c *zsockIf) Listen(fx func([]byte, *net.UDPAddr)) {
 			if time.Now().Unix() > logTime {
 				logTime = time.Now().Unix()
 				log.Info("IP Proto dismatch")
-				log.Info("IP packet:", ip.String(ln, 4))
+				log.Info("IP packet:", ip.String(ln, 0))
 			}
 			return
 		}
@@ -228,7 +218,7 @@ func (c *zsockIf) Listen(fx func([]byte, *net.UDPAddr)) {
 		/*
 			if time.Now().Unix() > logTime+1 {
 				logTime = time.Now().Unix()
-				log.Info("IP packet:", ip.String(ln, 4))
+				log.Info("IP packet:", ip.String(ln, 0))
 			}
 		*/
 		ln -= iOff

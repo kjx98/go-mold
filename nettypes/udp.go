@@ -15,12 +15,18 @@ func (t UDP_P) Bytes() []byte {
 }
 
 func (t UDP_P) String(frameLen uint16, indent int) string {
-	return fmt.Sprintf(padLeft("UDP Len      : %d/%d\n", "\t", indent),
+	ret := fmt.Sprintf(padLeft("UDP Len      : %d/%d\n", "\t", indent),
 		frameLen, t.Length()) +
 		fmt.Sprintf(padLeft("Source Port  : %d\n", "\t", indent), t.SourcePort()) +
 		fmt.Sprintf(padLeft("Dest Port    : %d\n", "\t", indent), t.DestinationPort()) +
 		fmt.Sprintf(padLeft("Checksum     : %02x\n", "\t", indent), t.Checksum()) +
 		fmt.Sprintf(padLeft("CalcChecksum : %02x\n", "\t", indent), t.CalculateChecksum())
+	if t.Length() == frameLen && frameLen < 256 && frameLen > 8 {
+		ss, _ := t.Payload()
+		ss = ss[:int(frameLen-8)]
+		ret += fmt.Sprintf(padLeft("Payload      : %s\n", "\t", indent), string(ss))
+	}
+	return ret
 }
 
 func (t UDP_P) SourcePort() uint16 {

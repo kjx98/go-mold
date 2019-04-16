@@ -193,7 +193,7 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 	sll := syscall.SockaddrLinklayer{}
 	sll.Protocol = uint16(eT)
 	sll.Ifindex = ethIndex
-	sll.Halen = _ETH_ALEN
+	sll.Halen = C.ETH_ALEN
 	if err := syscall.Bind(sock, &sll); err != nil {
 		log.Error("bind AF_PACKET", err)
 		return nil, err
