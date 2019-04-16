@@ -92,6 +92,19 @@ inline int setPacketMultiCast(int fd, int ifIndex, unsigned char *ipAddr) {
 				sizeof(mreq));
 }
 
+inline void buildIP(char *buff,int len, void *src, void *dst) {
+	struct iphdr *ipHdr=(struct iphdr *)buff;
+	memset(ipHdr, 0, sizeof(*ipHdr));
+	buff[0] = 0x45;
+	ipHdr->tot_len = htons(len + 28);
+	ipHdr->id = 0;
+	ipHdr->frag_off = htons(IP_DF);	// htons(0x4000);
+	ipHdr->ttl = 2;
+	ipHdr->protocol = 0x11;
+	memcpy(&ipHdr->saddr, src, 4);
+	memcpy(&ipHdr->daddr, dst, 4);
+}
+
 */
 import "C"
 
@@ -129,15 +142,18 @@ func getIfAddr(ifn *net.Interface) (net.IP, error) {
 	return ret, nil
 }
 
-func buildIP(buff []byte, len int) {
-	buff[0] = 0x45
-	ipHdr := (*C.struct_iphdr)(unsafe.Pointer(&buff[0]))
-	//ipHdr.tos =
-	ipHdr.tot_len = C.htons(C.ushort(len + 28))
-	ipHdr.id = 0
-	ipHdr.frag_off = C.htons(0x4000)
-	ipHdr.ttl = 2
-	ipHdr.protocol = 0x11
+func buildIP(buff []byte, l int, src, dst []byte) {
+	C.buildIP((*C.char)(unsafe.Pointer(&buff[0])), C.int(l),
+		unsafe.Pointer(&src[0]), unsafe.Pointer(&dst[0]))
+	/*
+		buff[0] = 0x45
+		ipHdr := (*C.struct_iphdr)(unsafe.Pointer(&buff[0]))
+		ipHdr.tot_len = C.htons(C.ushort(l + 28))
+		ipHdr.id = 0
+		ipHdr.frag_off = C.htons(0x4000)
+		ipHdr.ttl = 2
+		ipHdr.protocol = 0x11
+	*/
 }
 
 type udpHeader struct {

@@ -126,9 +126,11 @@ func (c *zsockIf) copyFx(dst, src []byte, l int) uint16 {
 	copy(dst[6:], c.src)
 	dst[12] = 8
 	dst[13] = 0
-	buildIP(dst[14:], l)
-	copy(dst[14+12:], c.srcIP[:])
-	copy(dst[14+16:], c.dstIP[:])
+	buildIP(dst[14:], l, c.srcIP[:], c.dstIP[:])
+	/*
+		copy(dst[14+12:], c.srcIP[:])
+		copy(dst[14+16:], c.dstIP[:])
+	*/
 	ip := nettypes.IPv4_P(dst[14:])
 	ckSum := ip.CalculateChecksum()
 	dst[14+10] = byte(ckSum >> 8)
@@ -203,7 +205,11 @@ func (c *zsockIf) Listen(fx func([]byte, *net.UDPAddr)) {
 		ln -= mOff
 		ip := nettypes.IPv4_P(mPay)
 		if ip.Protocol() != nettypes.UDP {
-			tryLog("IP Proto dismatch")
+			if time.Now().Unix() > logTime {
+				logTime = time.Now().Unix()
+				log.Info("IP Proto dismatch")
+				log.Info("IP packet:", ip.String(ln, 4))
+			}
 			return
 		}
 		if ln < ip.Length() {

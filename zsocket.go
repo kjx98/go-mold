@@ -15,9 +15,30 @@ import (
 #include <linux/if_ether.h>  // ETH_P_ALL
 #include <sys/socket.h>  // socket()
 #include <unistd.h>  // close()
+#include <string.h>
 #include <arpa/inet.h>  // htons()
 #include <sys/mman.h>  // mmap(), munmap()
 #include <poll.h>  // poll()
+
+#define	SOCKADDR_START	TPACKET_ALIGN(sizeof(struct tpacket_hdr))
+#define	TX_START	TPACKET_ALIGN(TPACKET_HDRLEN)
+void packetStats(int sock, uint64_t *rx_drops) {
+	struct tpacket_stats tp_stats;  // tp_drops is only incremented by the Kernel on Rx, not Tx
+    memset(&tp_stats, 0, sizeof(tp_stats));
+	socklen_t stats_len = sizeof(tp_stats);
+	int	sock_stats = getsockopt(sock, SOL_PACKET, PACKET_STATISTICS, &tp_stats, &stats_len);
+	if (sock_stats == 0) *rx_drops += tp_stats.tp_drops;
+}
+
+void setDstAddr(char *buff, int ifIndex) {
+	struct sockaddr_ll *sAddr = (struct sockaddr_ll *)(buff + SOCKADDR_START);
+	memset(sAddr, 0, sizeof(*sAddr));
+	sAddr->sll_family = AF_PACKET;
+	//sAddr->sll_protocol = htons(ETH_P_IP);
+	sAddr->sll_ifindex = ifIndex;
+	sAddr->sll_halen = 6;
+	//memcpy(sAddr->sll_addr, buff+TX_START, 6);
+}
 */
 import "C"
 
@@ -61,7 +82,8 @@ var (
 	//_TP_SNAPLEN_START int
 	//_TP_SNAPLEN_STOP  int
 
-	_TX_START int
+	_TX_START   int
+	_ADDR_START int
 )
 
 // the top of every frame in the ring buffer looks like this:
@@ -77,13 +99,8 @@ var (
 //};
 */
 func init() {
-	//tpHdr := C.struct_tpacket_hdr{}
-	//_TX_START = int(unsafe.Sizeof(tpHdr))
-	_TX_START = int(C.TPACKET_HDRLEN)
-	r := _TX_START % TPACKET_ALIGNMENT
-	if r > 0 {
-		_TX_START += (TPACKET_ALIGNMENT - r)
-	}
+	_ADDR_START = int(C.SOCKADDR_START)
+	_TX_START = int(C.TX_START)
 }
 
 func PacketOffset() int {
@@ -127,7 +144,9 @@ type IZSocket interface {
 // Do not manually initialize ZSocket. Use `NewZSocket`.
 type ZSocket struct {
 	socket         int
+	ifIndex        int
 	raw            []byte
+	nDrops         uint64
 	listening      int32
 	frameNum       int32
 	frameSize      uint16
@@ -158,7 +177,7 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 		return nil, fmt.Errorf("maxTotalFrames must be at least 16, and be a multiple of 8")
 	}
 
-	log.Info("AF_PACKET Ring TX_START", _TX_START)
+	log.Info("AF_PACKET Ring TX_START", _TX_START, "ADDR_START", _ADDR_START)
 	zs := new(ZSocket)
 	eT := int(C.htons(C.ushort(ethType)))
 	// in Linux PF_PACKET is actually defined by AF_PACKET.
@@ -170,6 +189,7 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 		return nil, err
 	}
 	zs.socket = sock
+	zs.ifIndex = ethIndex
 	sll := syscall.SockaddrLinklayer{}
 	sll.Protocol = uint16(eT)
 	sll.Ifindex = ethIndex
@@ -359,6 +379,7 @@ func (zs *ZSocket) CopyToBuffer(buf []byte, l uint16, copyFx func(dst, src []byt
 		return -1, err
 	}
 	cL := copyFx(tx.txStart, buf, int(l))
+	C.setDstAddr((*C.char)(unsafe.Pointer(&tx.raw[0])), C.int(zs.ifIndex))
 	tx.setTpLen(cL)
 	tx.setTpSnapLen(cL)
 	written := atomic.AddInt32(&zs.txWritten, 1)
@@ -399,6 +420,7 @@ func (zs *ZSocket) FlushFrames() (uint, error, []error) {
 	if _, e1 := Sendto(zs.socket, nil, 0, nil); e1 != nil {
 		return framesFlushed, e1, nil
 	}
+	C.packetStats(C.int(zs.socket), (*C.ulong)(&zs.nDrops))
 	var errs []error = nil
 	for t, w := index, written; w > 0; w-- {
 		tx := zs.txFrames[t]
