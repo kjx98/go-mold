@@ -54,3 +54,25 @@ func TestBuildRawUDP(t *testing.T) {
 	f := nettypes.Frame(buff[:nn])
 	t.Log("dump Ether frame:", f.String(uint16(nn), 0))
 }
+
+func BenchmarkBuildIP(b *testing.B) {
+	buff := [128]byte{}
+	srcBuf := []byte("test only, should be fine")
+	n := len(srcBuf)
+	srcIP := net.IPv4(192, 168, 0, 1).To4()
+	dstIP := net.IPv4(239, 192, 168, 1).To4()
+	for i := 0; i < b.N; i++ {
+		buildIP(buff[:], n, srcIP, dstIP)
+	}
+}
+
+func BenchmarkBuildIPv4(b *testing.B) {
+	buff := [128]byte{}
+	srcBuf := []byte("test only, should be fine")
+	n := len(srcBuf)
+	srcIP := net.IPv4(192, 168, 0, 1).To4()
+	dstIP := net.IPv4(239, 192, 168, 1).To4()
+	for i := 0; i < b.N; i++ {
+		buildIPv4(buff[:], n, srcIP, dstIP)
+	}
+}

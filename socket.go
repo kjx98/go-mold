@@ -94,15 +94,16 @@ inline int setPacketMultiCast(int fd, int ifIndex, unsigned char *ipAddr) {
 				sizeof(mreq));
 }
 
-inline void buildIP(char *buff,int len, void *src, void *dst) {
+inline void buildIP(void *buff,int len, void *src, void *dst) {
 	struct iphdr *ipHdr=(struct iphdr *)buff;
 	memset(ipHdr, 0, sizeof(*ipHdr));
-	buff[0] = 0x45;
+	*((char *)buff) = 0x45;
 	ipHdr->tot_len = htons(len + 28);
-	ipHdr->id = 0;
+	//ipHdr->id = 0;
 	ipHdr->frag_off = htons(IP_DF);	// htons(0x4000);
 	ipHdr->ttl = 2;
 	ipHdr->protocol = 0x11;
+	//ipHdr->check = 0;
 	memcpy(&ipHdr->saddr, src, 4);
 	memcpy(&ipHdr->daddr, dst, 4);
 }
@@ -173,6 +174,11 @@ func buildRawUDP(buff []byte, udpLen int, port int, src, dst []byte) {
 	buildUDP(buff[14+20:], port, udpLen)
 }
 
+func buildIPv4(buff []byte, udpLen int, src, dst []byte) {
+	C.buildIP(unsafe.Pointer(&buff[0]), C.int(udpLen),
+		unsafe.Pointer(&src[0]), unsafe.Pointer(&dst[0]))
+}
+
 func buildIP(buff []byte, udpLen int, src, dst []byte) {
 	ipHdr := (*ipHeader)(unsafe.Pointer(&buff[0]))
 	ipHdr.IhlVer = 0x45
@@ -185,12 +191,6 @@ func buildIP(buff []byte, udpLen int, src, dst []byte) {
 	ipHdr.check = 0
 	copy(ipHdr.saddr[:], src)
 	copy(ipHdr.daddr[:], dst)
-	/*
-		C.buildIP((*C.char)(unsafe.Pointer(&buff[0])), C.int(l),
-			unsafe.Pointer(&src[0]), unsafe.Pointer(&dst[0]))
-			buff[0] = 0x45
-			ipHdr := (*C.struct_iphdr)(unsafe.Pointer(&buff[0]))
-	*/
 }
 
 type udpHeader struct {
