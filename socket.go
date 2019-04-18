@@ -5,6 +5,7 @@ package MoldUDP
 import (
 	"fmt"
 	"net"
+	"os"
 	"runtime"
 	"strings"
 	"syscall"
@@ -295,6 +296,14 @@ func JoinMulticast(fd int, maddr []byte, ifn *net.Interface) (err error) {
 	copy(mreq[:4], maddr)
 	if ifn != nil {
 		if adr, err := getIfAddr(ifn); err == nil {
+			copy(mreq[4:], adr.To4())
+			log.Infof("Use %s for Multicast interface", adr)
+		}
+	} else {
+		// try os.Getenv
+		laddr := os.Getenv("LADDR")
+		log.Info("Try joinMC env LADDR:", laddr)
+		if adr := net.ParseIP(laddr); adr != nil {
 			copy(mreq[4:], adr.To4())
 			log.Infof("Use %s for Multicast interface", adr)
 		}

@@ -89,13 +89,6 @@ func (c *sockIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) (
 	}
 	c.bRead = false
 	log.Info("Server listen", LocalAddr(c.fd))
-	// set Multicast
-	/*
-		err = JoinMulticast(c.fd, c.dst.Addr[:], ifn)
-		if err != nil {
-			log.Info("add multi group", err)
-		}
-	*/
 	//ReserveRecvBuf(c.fd)
 	ReserveSendBuf(c.fd)
 	log.Infof("Try Multicast %s:%d", ip, port)
