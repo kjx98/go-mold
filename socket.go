@@ -25,7 +25,7 @@ import (
 //#include <string.h>
 //#include <errno.h>
 /*
-int inline errNo() { return errno; }
+static int inline errNo() { return errno; }
 
 inline void buildIP(void *buff,int len, void *src, void *dst) {
 	struct iphdr *ipHdr=(struct iphdr *)buff;

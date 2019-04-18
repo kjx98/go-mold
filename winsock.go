@@ -23,7 +23,7 @@ import (
 //#include <string.h>
 //#include <errno.h>
 /*
-int inline errNo() { return errno; }
+static inline int errNo() { return errno; }
 
 static inline void newSockaddrIn(int port, const void *addr, struct sockaddr_in *saddr)
 {
