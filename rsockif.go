@@ -1,3 +1,5 @@
+// +build linux
+
 package MoldUDP
 
 import (
@@ -31,6 +33,10 @@ type rsockIf struct {
 
 func newRSockIf() McastConn {
 	return &rsockIf{fd: -1}
+}
+
+func init() {
+	registerIf("rsock", newRSockIf)
 }
 
 func (c *rsockIf) Enabled(opts int) bool {

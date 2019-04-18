@@ -38,20 +38,25 @@ type netIf struct {
 	adr   net.UDPAddr
 }
 
+type ifFuncType func() McastConn
+
+var ifFuncMap = map[string]ifFuncType{}
+
 func NewIf(netMode string) (netif McastConn) {
-	switch netMode {
-	case "sock", "socket":
-		netif = newSockIf()
-	case "rsock", "rsocket":
-		netif = newRSockIf()
-	case "zsock", "izsocket":
-		netif = newZSockIf()
-	case "net":
-		fallthrough
-	default:
+	if netMode == "net" {
 		netif = newNetIf()
+		return
 	}
+	if funcPtr, ok := ifFuncMap[netMode]; ok {
+		netif = funcPtr()
+		return
+	}
+	netif = newNetIf()
 	return
+}
+
+func registerIf(ifName string, funcPtr ifFuncType) {
+	ifFuncMap[ifName] = funcPtr
 }
 
 func newNetIf() McastConn {

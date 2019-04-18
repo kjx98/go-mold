@@ -1,3 +1,5 @@
+// +build linux
+
 package MoldUDP
 
 import (
@@ -20,6 +22,11 @@ type zsockIf struct {
 
 func newZSockIf() McastConn {
 	return &zsockIf{}
+}
+
+func init() {
+	registerIf("zsock", newZSockIf)
+	registerIf("zsocket", newZSockIf)
 }
 
 func (c *zsockIf) Enabled(opts int) bool {
