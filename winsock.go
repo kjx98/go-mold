@@ -1,4 +1,4 @@
-// +build !windows
+// +build windows
 
 package MoldUDP
 
@@ -14,31 +14,15 @@ import (
 	"github.com/kjx98/go-mold/nettypes"
 )
 
-//#cgo LDFLAGS: -ldl
+//#cgo LDFLAGS: -lws2_32
 //#include <sys/types.h>          /* See NOTES */
-//#include <sys/socket.h>
-//#include <netinet/in.h>
-//#include <netinet/ip.h>
-//#include <net/ethernet.h>
+//#include <winsock2.h>
+//#include <ws2tcpip.h>
 //#include <unistd.h>
 //#include <string.h>
 //#include <errno.h>
 /*
 int inline errNo() { return errno; }
-
-inline void buildIP(void *buff,int len, void *src, void *dst) {
-	struct iphdr *ipHdr=(struct iphdr *)buff;
-	memset(ipHdr, 0, sizeof(*ipHdr));
-	*((char *)buff) = 0x45;
-	ipHdr->tot_len = htons(len + 28);
-	//ipHdr->id = 0;
-	ipHdr->frag_off = htons(IP_DF);	// htons(0x4000);
-	ipHdr->ttl = 2;
-	ipHdr->protocol = 0x11;
-	//ipHdr->check = 0;
-	memcpy(&ipHdr->saddr, src, 4);
-	memcpy(&ipHdr->daddr, dst, 4);
-}
 
 static inline void newSockaddrIn(int port, const void *addr, struct sockaddr_in *saddr)
 {
@@ -47,11 +31,22 @@ static inline void newSockaddrIn(int port, const void *addr, struct sockaddr_in 
 	memcpy(& saddr->sin_addr, addr, 4);
 }
 
+int inline iniSocket() {
+	WSADATA	wsd;
+	return WSAStartup(MAKEWORD(2,2), &wsd);
+}
+
 static inline void copyAddr(struct sockaddr_in *addr, void *dstAddr) {
 	memcpy(dstAddr, &addr->sin_addr, 4);
 }
 */
 import "C"
+
+func init() {
+	if C.iniSocket() != 0 {
+		panic("WSAStartup")
+	}
+}
 
 func getIfAddr(ifn *net.Interface) (net.IP, error) {
 	ret := net.IPv4zero
@@ -95,11 +90,6 @@ func buildRawUDP(buff []byte, udpLen int, port int, src, dst []byte) {
 	buildUDP(buff[14+20:], port, udpLen)
 }
 
-func buildIPv4(buff []byte, udpLen int, src, dst []byte) {
-	C.buildIP(unsafe.Pointer(&buff[0]), C.int(udpLen),
-		unsafe.Pointer(&src[0]), unsafe.Pointer(&dst[0]))
-}
-
 func buildIP(buff []byte, udpLen int, src, dst []byte) {
 	ipHdr := (*ipHeader)(unsafe.Pointer(&buff[0]))
 	ipHdr.IhlVer = 0x45
@@ -139,9 +129,9 @@ func Sleep(interv time.Duration) {
 }
 
 func GetsockoptInt(fd, level, opt int) (value int, err error) {
-	optLen := C.uint(unsafe.Sizeof(value))
-	ret := C.getsockopt(C.int(fd), C.int(level), C.int(opt),
-		unsafe.Pointer(&value), &optLen)
+	optLen := C.int(unsafe.Sizeof(value))
+	ret := C.getsockopt(C.SOCKET(fd), C.int(level), C.int(opt),
+		(*C.char)(unsafe.Pointer(&value)), &optLen)
 	if ret != 0 {
 		err = syscall.Errno(C.errNo())
 	}
@@ -149,9 +139,9 @@ func GetsockoptInt(fd, level, opt int) (value int, err error) {
 }
 
 func SetsockoptInt(fd, level, opt, val int) (err error) {
-	optLen := C.uint(unsafe.Sizeof(val))
-	ret := C.setsockopt(C.int(fd), C.int(level), C.int(opt),
-		unsafe.Pointer(&val), optLen)
+	optLen := C.int(unsafe.Sizeof(val))
+	ret := C.setsockopt(C.SOCKET(fd), C.int(level), C.int(opt),
+		(*C.char)(unsafe.Pointer(&val)), optLen)
 	if ret != 0 {
 		err = syscall.Errno(C.errNo())
 	}
@@ -168,10 +158,11 @@ func Socket(domain, typ, proto int) (fd int, err error) {
 }
 
 func Close(fd int) (err error) {
-	ret := C.close(C.int(fd))
+	ret := C.closesocket(C.SOCKET(fd))
 	if ret < 0 {
 		err = syscall.Errno(C.errNo())
 	}
+	C.WSACleanup()
 	return
 }
 
@@ -202,7 +193,7 @@ func (adr *SockaddrInet4) String() string {
 func LocalAddr(fd int) *SockaddrInet4 {
 	saddr := C.struct_sockaddr_in{}
 	aLen := C.socklen_t(unsafe.Sizeof(saddr))
-	if C.getsockname(C.int(fd), (*C.struct_sockaddr)(unsafe.Pointer(&saddr)), &aLen) < 0 {
+	if C.getsockname(C.SOCKET(fd), (*C.struct_sockaddr)(unsafe.Pointer(&saddr)), &aLen) < 0 {
 		return nil
 	}
 	laddr := &SockaddrInet4{Port: int(C.ntohs(saddr.sin_port))}
@@ -215,7 +206,7 @@ func Bind(fd int, laddr *SockaddrInet4) (err error) {
 	C.newSockaddrIn(C.int(laddr.Port), unsafe.Pointer(&laddr.Addr[0]), &saddr)
 	//saddr.sin_family = C.AF_INET
 	//saddr.sin_port = C.htons(C.ushort(port))
-	ret := C.bind(C.int(fd), (*C.struct_sockaddr)(unsafe.Pointer(&saddr)),
+	ret := C.bind(C.SOCKET(fd), (*C.struct_sockaddr)(unsafe.Pointer(&saddr)),
 		C.socklen_t(unsafe.Sizeof(saddr)))
 	if ret < 0 {
 		err = syscall.Errno(C.errNo())
@@ -226,8 +217,9 @@ func Bind(fd int, laddr *SockaddrInet4) (err error) {
 func Recvfrom(fd int, p []byte, flags int) (n int, from *SockaddrInet4, err error) {
 	raddr := C.struct_sockaddr_in{}
 	raddrLen := C.socklen_t(unsafe.Sizeof(raddr))
-	ret := C.recvfrom(C.int(fd), unsafe.Pointer(&p[0]), C.size_t(len(p)),
-		C.int(flags), (*C.struct_sockaddr)(unsafe.Pointer(&raddr)), &raddrLen)
+	ret := C.recvfrom(C.SOCKET(fd), (*C.char)(unsafe.Pointer(&p[0])),
+		C.int(len(p)), C.int(flags),
+		(*C.struct_sockaddr)(unsafe.Pointer(&raddr)), &raddrLen)
 	if ret < 0 {
 		errN := C.errNo()
 		if errN != 0 && errN != C.EAGAIN && errN != C.EWOULDBLOCK {
@@ -243,15 +235,10 @@ func Recvfrom(fd int, p []byte, flags int) (n int, from *SockaddrInet4, err erro
 
 func Sendto(fd int, p []byte, flags int, to *SockaddrInet4) (ret int, err error) {
 	taddr := C.struct_sockaddr_in{}
-	if to == nil || p == nil {
-		ret = int(C.sendto(C.int(fd), C.NULL, 0, 0,
-			(*C.struct_sockaddr)(C.NULL), 0))
-	} else {
-		C.newSockaddrIn(C.int(to.Port), unsafe.Pointer(&to.Addr[0]), &taddr)
-		ret = int(C.sendto(C.int(fd), unsafe.Pointer(&p[0]), C.size_t(len(p)),
-			C.int(flags), (*C.struct_sockaddr)(unsafe.Pointer(&taddr)),
-			C.uint(unsafe.Sizeof(taddr))))
-	}
+	C.newSockaddrIn(C.int(to.Port), unsafe.Pointer(&to.Addr[0]), &taddr)
+	ret = int(C.sendto(C.SOCKET(fd), (*C.char)(unsafe.Pointer(&p[0])),
+		C.int(len(p)), C.int(flags), (*C.struct_sockaddr)(unsafe.Pointer(&taddr)),
+		C.int(unsafe.Sizeof(taddr))))
 	if ret < 0 {
 		errN := C.errNo()
 		if errN != 0 && errN != C.EAGAIN && errN != C.EWOULDBLOCK {
@@ -299,9 +286,9 @@ func JoinMulticast(fd int, maddr []byte, ifn *net.Interface) (err error) {
 			log.Infof("Use %s for Multicast interface", adr)
 		}
 	}
-	optLen := C.uint(unsafe.Sizeof(mreq))
-	res := C.setsockopt(C.int(fd), C.IPPROTO_IP, C.IP_ADD_MEMBERSHIP,
-		unsafe.Pointer(&mreq), optLen)
+	optLen := C.int(unsafe.Sizeof(mreq))
+	res := C.setsockopt(C.SOCKET(fd), C.IPPROTO_IP, C.IP_ADD_MEMBERSHIP,
+		(*C.char)(unsafe.Pointer(&mreq)), optLen)
 	if res != 0 {
 		err = syscall.Errno(C.errNo())
 	}
@@ -321,9 +308,9 @@ func SetMulticastInterface(fd int, ifn *net.Interface) (err error) {
 		copy(sVal[:], ifAddr.To4())
 		log.Info("Set out Multicast interface to", ifAddr)
 	}
-	optLen := C.uint(unsafe.Sizeof(sVal))
-	res := C.setsockopt(C.int(fd), C.IPPROTO_IP, C.IP_MULTICAST_IF,
-		unsafe.Pointer(&sVal), optLen)
+	optLen := C.int(unsafe.Sizeof(sVal))
+	res := C.setsockopt(C.SOCKET(fd), C.IPPROTO_IP, C.IP_MULTICAST_IF,
+		(*C.char)(unsafe.Pointer(&sVal)), optLen)
 	if res != 0 {
 		err = syscall.Errno(C.errNo())
 	}
@@ -333,10 +320,10 @@ func SetMulticastInterface(fd int, ifn *net.Interface) (err error) {
 //退出组播域
 func ExitMulticast(fd int, maddr net.IP) {
 	var mreq = [8]byte{}
-	optLen := C.uint(unsafe.Sizeof(mreq))
+	optLen := C.int(unsafe.Sizeof(mreq))
 	copy(mreq[:4], maddr.To4())
-	C.setsockopt(C.int(fd), C.IPPROTO_IP, C.IP_DROP_MEMBERSHIP,
-		unsafe.Pointer(&mreq), optLen)
+	C.setsockopt(C.SOCKET(fd), C.IPPROTO_IP, C.IP_DROP_MEMBERSHIP,
+		(*C.char)(unsafe.Pointer(&mreq)), optLen)
 }
 
 //设置路由的TTL值

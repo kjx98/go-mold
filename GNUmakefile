@@ -20,6 +20,9 @@ MAKEFILE=GNUmakefile
 all: bin/client bin/server
 	@[ -d bin ] || exit
 
+win64: bin/client64.exe
+	@[ -d bin ] || exit
+
 bin/client:	cmd/client/main.go
 	@[ -d bin ] || mkdir bin
 	@go build -o $@ $^
@@ -29,6 +32,11 @@ bin/server:	cmd/server/main.go
 	@[ -d bin ] || mkdir bin
 	@go build -o $@ $^
 	@strip $@ || echo "server OK"
+
+bin/client64.exe:	cmd/client/main.go
+	@[ -d bin ] || mkdir bin
+	(. ./mingw64-env.sh; go build -o $@ $^)
+	@echo "client64.exe OK"
 
 test:
 	@go test -v
