@@ -31,7 +31,7 @@ static inline void newSockaddrIn(int port, const void *addr, struct sockaddr_in 
 	memcpy(& saddr->sin_addr, addr, 4);
 }
 
-int inline iniSocket() {
+static inline int iniSocket() {
 	WSADATA	wsd;
 	return WSAStartup(MAKEWORD(2,2), &wsd);
 }
