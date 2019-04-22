@@ -5,7 +5,21 @@ import (
 	"reflect"
 	"testing"
 	"time"
+	"unsafe"
 )
+
+type crayUDP struct {
+	Session  uint32
+	trackId  uint16
+	MsgCount uint16
+	SeqNo    uint64
+}
+
+func TestCrayUDP(t *testing.T) {
+	if nn := unsafe.Sizeof(crayUDP{}); nn != 16 {
+		t.Errorf("crayUDP headSize diff: %d expect 16", nn)
+	}
+}
 
 func TestEncodeHead(t *testing.T) {
 	bb := make([]byte, 20)
