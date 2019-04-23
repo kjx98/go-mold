@@ -61,11 +61,28 @@ import (
 	"sync"
 	"time"
 	"unsafe"
-
-	"github.com/google/gopacket"
+	//"github.com/google/gopacket"
 )
 
 const errorBufferSize = 256
+
+// CaptureInfo provides standardized information about a packet captured off
+// the wire or read from a file.
+type CaptureInfo struct {
+	// Timestamp is the time the packet was captured, if that is known.
+	Timestamp time.Time
+	// CaptureLength is the total number of bytes read off of the wire.
+	CaptureLength int
+	// Length is the size of the original packet.  Should always be >=
+	// CaptureLength.
+	Length int
+	// InterfaceIndex
+	InterfaceIndex int
+	// The packet source can place ancillary data of various types here.
+	// For example, the afpacket source can report the VLAN of captured
+	// packets this way.
+	AncillaryData []interface{}
+}
 
 // Ring provides a handle to a pf_ring.
 type Ring struct {
@@ -149,7 +166,7 @@ func (n NextResult) Error() string {
 }
 
 // shared code (Read-functions), that fetches a packet + metadata from pf_ring
-func (r *Ring) getNextBufPtrLocked(ci *gopacket.CaptureInfo) error {
+func (r *Ring) getNextBufPtrLocked(ci *CaptureInfo) error {
 	result := NextResult(C.pfring_readpacketdatato_wrapper(r.cptr, C.uintptr_t(uintptr(unsafe.Pointer(&r.bufPtr))), C.uintptr_t(uintptr(unsafe.Pointer(&r.meta)))))
 	if result != NextOk {
 		return result
@@ -170,7 +187,7 @@ func (r *Ring) getNextBufPtrLocked(ci *gopacket.CaptureInfo) error {
 // Deprecated: This function is provided for legacy code only. Use ReadPacketData or ZeroCopyReadPacketData
 // This function does an additional copy, and is therefore slower than ZeroCopyReadPacketData.
 // The old implementation did the same inside the pf_ring library.
-func (r *Ring) ReadPacketDataTo(data []byte) (ci gopacket.CaptureInfo, err error) {
+func (r *Ring) ReadPacketDataTo(data []byte) (ci CaptureInfo, err error) {
 	r.mu.Lock()
 	err = r.getNextBufPtrLocked(&ci)
 	if err == nil {
@@ -188,7 +205,7 @@ func (r *Ring) ReadPacketDataTo(data []byte) (ci gopacket.CaptureInfo, err error
 // ReadPacketData returns the next packet read from pf_ring, along with an error
 // code associated with that packet. If the packet is read successfully, the
 // returned error is nil.
-func (r *Ring) ReadPacketData() (data []byte, ci gopacket.CaptureInfo, err error) {
+func (r *Ring) ReadPacketData() (data []byte, ci CaptureInfo, err error) {
 	r.mu.Lock()
 	err = r.getNextBufPtrLocked(&ci)
 	if err == nil {
@@ -209,7 +226,7 @@ func (r *Ring) ReadPacketData() (data []byte, ci gopacket.CaptureInfo, err error
 //  data1, _, _ := handle.ZeroCopyReadPacketData()
 //  // do everything you want with data1 here, copying bytes out of it if you'd like to keep them around.
 //  data2, _, _ := handle.ZeroCopyReadPacketData()  // invalidates bytes in data1
-func (r *Ring) ZeroCopyReadPacketData() (data []byte, ci gopacket.CaptureInfo, err error) {
+func (r *Ring) ZeroCopyReadPacketData() (data []byte, ci CaptureInfo, err error) {
 	r.mu.Lock()
 	err = r.getNextBufPtrLocked(&ci)
 	if err == nil {
