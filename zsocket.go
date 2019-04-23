@@ -24,6 +24,7 @@ import (
 
 #define	SOCKADDR_START	TPACKET_ALIGN(sizeof(struct tpacket_hdr))
 #define	TX_START	TPACKET_ALIGN(TPACKET_HDRLEN)
+//#define	TX_START	TPACKET_HDRLEN
 void packetStats(int sock, uint64_t *rx_drops) {
 	struct tpacket_stats tp_stats;  // tp_drops is only incremented by the Kernel on Rx, not Tx
     memset(&tp_stats, 0, sizeof(tp_stats));
@@ -285,7 +286,8 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 			frLoc = i * int(zs.frameSize)
 			tx := &ringFrame{}
 			tx.raw = zs.raw[frLoc : frLoc+int(zs.frameSize)]
-			tx.txStart = tx.raw[int(C.TPACKET_HDRLEN):]
+			//tx.txStart = tx.raw[int(C.TPACKET_HDRLEN):]
+			tx.txStart = tx.raw[int(C.TX_START):]
 			zs.txFrames = append(zs.txFrames, tx)
 		}
 	}
