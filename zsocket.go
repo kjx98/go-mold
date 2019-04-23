@@ -23,8 +23,9 @@ import (
 #include <poll.h>  // poll()
 
 #define	SOCKADDR_START	TPACKET_ALIGN(sizeof(struct tpacket_hdr))
-#define	TX_START	TPACKET_ALIGN(TPACKET_HDRLEN)
+//#define	TX_START	TPACKET_ALIGN(TPACKET_HDRLEN)
 //#define	TX_START	TPACKET_HDRLEN
+#define	TX_START		TPACKET_ALIGN(sizeof(struct tpacket_hdr))
 void packetStats(int sock, uint64_t *rx_drops) {
 	struct tpacket_stats tp_stats;  // tp_drops is only incremented by the Kernel on Rx, not Tx
     memset(&tp_stats, 0, sizeof(tp_stats));
@@ -383,7 +384,7 @@ func (zs *ZSocket) CopyToBuffer(buf []byte, l uint16, copyFx func(dst, src []byt
 		return -1, err
 	}
 	cL := copyFx(tx.txStart, buf, int(l))
-	C.setDstAddr((*C.char)(unsafe.Pointer(&tx.raw[0])), C.int(zs.ifIndex))
+	//C.setDstAddr((*C.char)(unsafe.Pointer(&tx.raw[0])), C.int(zs.ifIndex))
 	tx.setTpLen(cL)
 	tx.setTpSnapLen(cL)
 	written := atomic.AddInt32(&zs.txWritten, 1)

@@ -135,11 +135,13 @@ func (c *zsockIf) copyFx(dst, src []byte, l int) uint16 {
 	//dst[13] = 0
 	buildRawUDP(dst, l, c.port, c.srcIP[:], c.dstIP[:])
 	copy(dst[14+28:], src)
-	if time.Now().Unix() > logTime+1 {
-		logTime = time.Now().Unix()
-		f := nettypes.Frame(dst[:l+42])
-		log.Info("IP packet:", f.String(uint16(l+42), 0))
-	}
+	/*
+		if time.Now().Unix() > logTime+1 {
+			logTime = time.Now().Unix()
+			f := nettypes.Frame(dst[:l+42])
+			log.Info("IP packet:", f.String(uint16(l+42), 0))
+		}
+	*/
 	return uint16(l + 28 + 14)
 }
 
