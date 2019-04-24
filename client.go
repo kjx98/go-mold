@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	reqInterval = 100 * time.Millisecond
+	reqInterval = 10 * time.Millisecond
 	maxMessages = 1024
 	nakWindow   = 65400
 )
@@ -98,6 +98,9 @@ func (c *Client) storeCache(buf []Message, seqNo uint64) uint64 {
 	}
 	if bMerge {
 		c.nMerges++
+		return 0
+	}
+	if !c.cache.IsNil(seqNo - 1) {
 		return 0
 	}
 	return ret

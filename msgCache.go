@@ -39,6 +39,18 @@ func (mc *msgCache) Upset(seqNo uint64, msg *Message) bool {
 	return ret
 }
 
+func (mc *msgCache) IsNil(seqNo uint64) bool {
+	page := int(seqNo >> pageShift)
+	off := int(seqNo & (maxPageMsg - 1))
+	if page >= mc.nPage {
+		return true
+	}
+	if mc.msgPages[page][off] == nil {
+		return true
+	}
+	return false
+}
+
 func (mc *msgCache) Merge(seqNo uint64) []Message {
 	page := int(seqNo >> pageShift)
 	off := int(seqNo & (maxPageMsg - 1))
@@ -48,18 +60,36 @@ func (mc *msgCache) Merge(seqNo uint64) []Message {
 	if mc.msgPages[page][off] == nil {
 		return nil
 	}
-	ret := []Message{}
-	nPP := 0
+	getCount := func(page, off int) (res int) {
+		for mc.msgPages[page][off] != nil {
+			res++
+			off++
+			if off >= maxPageMsg {
+				off = 0
+				page++
+				if page >= mc.nPage {
+					break
+				}
+			}
+		}
+		return
+	}
+	cnt := getCount(page, off)
+	if cnt == 0 {
+		return []Message{}
+	}
+	ret := make([]Message, cnt)
+	i := 0
 	for mc.msgPages[page][off] != nil {
-		ret = append(ret, *mc.msgPages[page][off])
+		ret[i] = *mc.msgPages[page][off]
+		i++
+		if i >= cnt {
+			break
+		}
 		off++
 		if off >= maxPageMsg {
 			off = 0
-			nPP++
 			page++
-			if nPP > 2 {
-				break
-			}
 		}
 	}
 	return ret
