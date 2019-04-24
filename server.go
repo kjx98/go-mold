@@ -8,7 +8,8 @@ import (
 )
 
 const (
-	maxUDPsize   = 1472
+	//maxUDPsize   = 1472
+	maxUDPsize   = 982
 	heartBeatInt = 2
 	maxGoes      = 512
 	maxWindow    = 120000
@@ -163,6 +164,8 @@ func (c *Server) RequestLoop() {
 			hc = hh
 			if atomic.LoadInt32(&hc.running) == 0 {
 				hc.seqAcked = head.SeqNo
+			} else {
+				continue
 			}
 			if time.Now().Sub(lastLog) >= time.Second {
 				log.Info(rAddr, "in process retrans for", hc.seqAcked, seqNext)

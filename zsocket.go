@@ -248,13 +248,13 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 		if e1 != 0 {
 			return nil, errnoErr(e1)
 		}
-		/*
-			Can't get this to work for some reason
-			if !zs.txLossDisabled {
-				if err := SetsockoptInt(sock, C.SOL_PACKET, C.PACKET_LOSS, 1); err != nil {
-					return nil, err
-				}
-			}*/
+		// Can't get this to work for some reason
+		if !zs.txLossDisabled {
+			if err := SetsockoptInt(sock, C.SOL_PACKET, C.PACKET_LOSS, 1); err != nil {
+				log.Error("setsockopt PACKET_LOSS", err)
+				//return nil, err
+			}
+		}
 	}
 
 	size := req.blockSize * req.blockNum
@@ -430,6 +430,7 @@ func (zs *ZSocket) FlushFrames() (uint, error, []error) {
 	for t, w := index, written; w > 0; w-- {
 		tx := zs.txFrames[t]
 		if zs.txLossDisabled && tx.txWrongFormat() {
+			log.Error("tx packet_loss")
 			errs = append(errs, txIndexError(t))
 		} else {
 			framesFlushed++
