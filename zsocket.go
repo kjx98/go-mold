@@ -49,7 +49,7 @@ import "C"
 const (
 	TPACKET_ALIGNMENT = 16
 
-	MINIMUM_FRAME_SIZE = TPACKET_ALIGNMENT << 7
+	MINIMUM_FRAME_SIZE = TPACKET_ALIGNMENT << 6
 	MAXIMUM_FRAME_SIZE = TPACKET_ALIGNMENT << 11
 
 	ENABLE_RX       = 1 << 0
@@ -86,8 +86,12 @@ var (
 	//_TP_SNAPLEN_START int
 	//_TP_SNAPLEN_STOP  int
 
-	_TX_START   int
-	_ADDR_START int
+	_TX_START    int
+	_ADDR_START  int
+	nPacketSent  int
+	nPacketRecv  int
+	nPacketWrong int
+	//macStart     int
 )
 
 // the top of every frame in the ring buffer looks like this:
@@ -349,6 +353,7 @@ func (zs *ZSocket) Listen(fx func([]byte, uint16, uint16)) error {
 			//f := nettypes.Frame(rf.raw[rf.macStart():])
 			f := rf.raw[rf.macStart():]
 			fx(f, rf.tpLen(), rf.tpSnapLen())
+			nPacketRecv++
 			rf.rxSet()
 			rxIndex = (rxIndex + 1) % zs.frameNum
 		}
@@ -387,6 +392,7 @@ func (zs *ZSocket) CopyToBuffer(buf []byte, l uint16, copyFx func(dst, src []byt
 	//C.setDstAddr((*C.char)(unsafe.Pointer(&tx.raw[0])), C.int(zs.ifIndex))
 	tx.setTpLen(cL)
 	tx.setTpSnapLen(cL)
+	nPacketSent++
 	written := atomic.AddInt32(&zs.txWritten, 1)
 	if written == 1 {
 		atomic.SwapInt32(&zs.txWrittenIndex, txIndex)
@@ -430,7 +436,8 @@ func (zs *ZSocket) FlushFrames() (uint, error, []error) {
 	for t, w := index, written; w > 0; w-- {
 		tx := zs.txFrames[t]
 		if zs.txLossDisabled && tx.txWrongFormat() {
-			log.Error("tx packet_loss")
+			//log.Error("tx packet_loss")
+			nPacketWrong++
 			errs = append(errs, txIndexError(t))
 		} else {
 			framesFlushed++
@@ -443,6 +450,12 @@ func (zs *ZSocket) FlushFrames() (uint, error, []error) {
 
 // Close socket
 func (zs *ZSocket) Close() error {
+	/*
+		log.Infof("zsocket sent: %d, recv: %d, sentError: %d, -- macStart: %d",
+			nPacketSent, nPacketRecv, nPacketWrong, macStart)
+	*/
+	log.Infof("zsocket sent: %d, recv: %d, sentError: %d",
+		nPacketSent, nPacketRecv, nPacketWrong)
 	return syscall.Close(zs.socket)
 }
 
@@ -518,6 +531,7 @@ type ringFrame struct {
 
 func (rf *ringFrame) macStart() uint16 {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
+	//macStart = int(tpHdr.tp_mac)
 	return uint16(tpHdr.tp_mac)
 	//return nativeShort(rf.raw[_TP_MAC_START:_TP_MAC_STOP])
 }

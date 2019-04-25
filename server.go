@@ -9,7 +9,7 @@ import (
 
 const (
 	//maxUDPsize   = 1472
-	maxUDPsize   = 982
+	maxUDPsize   = 896
 	heartBeatInt = 2
 	maxGoes      = 512
 	maxWindow    = 120000

@@ -131,7 +131,7 @@ func main() {
 	log.Infof("Last Block seqNo: %d/%d number: %d", lastSeq, lastSeqN, lastN)
 	cc.DumpStats()
 	log.Info("exit client")
-	os.Exit(0)
+	//os.Exit(0);
 }
 
 func ExitFunc() {

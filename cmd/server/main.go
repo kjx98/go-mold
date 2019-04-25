@@ -104,7 +104,7 @@ func main() {
 	du := time.Now().Sub(st)
 	cc.DumpStats()
 	log.Infof("exit server, running %.3f seconds", du.Seconds())
-	os.Exit(0)
+	//os.Exit(0)
 }
 
 func ExitFunc() {
