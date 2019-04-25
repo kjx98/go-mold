@@ -1,7 +1,7 @@
 package MoldUDP
 
 import (
-	"github.com/kjx98/go-mold/nettypes"
+	"github.com/kjx98/golib/nettypes"
 	"net"
 	"testing"
 	"unsafe"

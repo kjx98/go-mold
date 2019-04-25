@@ -6,7 +6,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/kjx98/go-mold/nettypes"
+	"github.com/kjx98/golib/nettypes"
 )
 
 type zsockIf struct {

@@ -12,7 +12,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/kjx98/go-mold/nettypes"
+	"github.com/kjx98/golib/nettypes"
 )
 
 //#cgo LDFLAGS: -ldl
