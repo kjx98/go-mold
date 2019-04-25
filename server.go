@@ -9,8 +9,9 @@ import (
 
 const (
 	//maxUDPsize   = 1472
-	//maxUDPsize   = 470
-	maxUDPsize   = 982
+	//maxUDPsize   = 982	// for socket sendmmsg
+	//maxUDPsize   = 896	// for zsocket 1k send frameSize
+	maxUDPsize   = 512
 	heartBeatInt = 2
 	maxGoes      = 512
 	maxWindow    = 120000
