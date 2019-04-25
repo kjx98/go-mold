@@ -56,6 +56,7 @@ func (c *zsockIf) Open(ip net.IP, port int, ifn *net.Interface) (err error) {
 	if c.zs != nil {
 		return errOpened
 	}
+	//c.zs, err = NewZSocket(ifn.Index, ENABLE_RX, 1024, 16384, ETH_IP)
 	c.zs, err = NewZSocket(ifn.Index, ENABLE_RX, 2048, 8192, ETH_IP)
 	if err != nil {
 		return
@@ -83,7 +84,7 @@ func (c *zsockIf) OpenSend(ip net.IP, port int, bLoop bool, ifn *net.Interface) 
 	if c.zs != nil {
 		return errOpened
 	}
-	c.zs, err = NewZSocket(ifn.Index, ENABLE_TX|DISABLE_TX_LOSS, 1024, 8192, ETH_IP)
+	c.zs, err = NewZSocket(ifn.Index, ENABLE_TX|DISABLE_TX_LOSS, 2048, 4096, ETH_IP)
 	if err != nil {
 		// if in testing, no return now
 		if !c.fake {

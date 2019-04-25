@@ -32,7 +32,7 @@ extern int recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
 #endif
 
 #define	MAX_BATCH	64
-#define	MAX_PACKET	1472
+//#define	MAX_PACKET	1472
 static int inline errNo() { return errno; }
 
 struct timespec timeo={0,1000000};

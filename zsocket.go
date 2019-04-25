@@ -301,13 +301,11 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 
 func calculateLargestFrame(ceil uint) uint {
 	i := uint(MINIMUM_FRAME_SIZE)
-	if i == ceil {
-		return i
-	}
 	for i < ceil {
 		i <<= 1
 	}
-	return (i >> 1)
+	//return (i >> 1)
+	return i
 }
 
 // Returns fd handle of socket for using lower call
