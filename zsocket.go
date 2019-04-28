@@ -20,20 +20,19 @@ import (
 #include <string.h>
 #include <arpa/inet.h>  // htons()
 #include <sys/mman.h>  // mmap(), munmap()
+#include <errno.h>
 #include <poll.h>  // poll()
+
+struct block_desc {
+	uint32_t version;
+	uint32_t offset_to_priv;
+	struct tpacket_hdr_v1 h1;
+};
 
 #define	SOCKADDR_START	TPACKET_ALIGN(sizeof(struct tpacket_hdr))
 //#define	TX_START	TPACKET_ALIGN(TPACKET_HDRLEN)
 //#define	TX_START	TPACKET_HDRLEN
 #define	TX_START		TPACKET_ALIGN(sizeof(struct tpacket_hdr))
-void packetStats(int sock, uint64_t *rx_drops) {
-	struct tpacket_stats tp_stats;  // tp_drops is only incremented by the Kernel on Rx, not Tx
-    memset(&tp_stats, 0, sizeof(tp_stats));
-	socklen_t stats_len = sizeof(tp_stats);
-	int	sock_stats = getsockopt(sock, SOL_PACKET, PACKET_STATISTICS, &tp_stats, &stats_len);
-	if (sock_stats == 0) *rx_drops += tp_stats.tp_drops;
-}
-
 void setDstAddr(char *buff, int ifIndex) {
 	struct sockaddr_ll *sAddr = (struct sockaddr_ll *)(buff + SOCKADDR_START);
 	memset(sAddr, 0, sizeof(*sAddr));
@@ -47,7 +46,8 @@ void setDstAddr(char *buff, int ifIndex) {
 import "C"
 
 const (
-	TPACKET_ALIGNMENT = 16
+	TPACKET_ALIGNMENT = uint(C.TPACKET_ALIGNMENT)
+	framesPerBlock    = 1024
 
 	MINIMUM_FRAME_SIZE = TPACKET_ALIGNMENT << 6
 	MAXIMUM_FRAME_SIZE = TPACKET_ALIGNMENT << 11
@@ -56,6 +56,10 @@ const (
 	ENABLE_TX       = 1 << 1
 	DISABLE_TX_LOSS = 1 << 2
 )
+
+func tpAlign(x int) int {
+	return int((uint(x) + TPACKET_ALIGNMENT - 1) &^ (TPACKET_ALIGNMENT - 1))
+}
 
 const (
 	_ETH_ALEN = C.ETH_ALEN //6
@@ -79,33 +83,53 @@ const (
 )
 
 var (
-	//_TP_MAC_START     int
-	//_TP_MAC_STOP      int
-	//_TP_LEN_START     int
-	//_TP_LEN_STOP      int
-	//_TP_SNAPLEN_START int
-	//_TP_SNAPLEN_STOP  int
-
 	_TX_START    int
 	_ADDR_START  int
 	nPacketSent  int
-	nPacketRecv  int
 	nPacketWrong int
-	//macStart     int
 )
 
-// the top of every frame in the ring buffer looks like this:
-/* struct tpacket_hdr in <linux/if_packet.h>
-//struct tpacket_hdr {
-//         unsigned long   tp_status;
-//         unsigned int    tp_len;
-//         unsigned int    tp_snaplen;
-//         unsigned short  tp_mac;
-//         unsigned short  tp_net;
-//         unsigned int    tp_sec;
-//         unsigned int    tp_usec;
-//};
-*/
+// OptTPacketVersion is the version of TPacket to use.
+// It can be passed into NewTPacket.
+type OptTPacketVersion int
+
+// String returns a string representation of the version, generally of the form V#.
+func (t OptTPacketVersion) String() string {
+	switch t {
+	case TPacketVersion1:
+		return "V1"
+	case TPacketVersion2:
+		return "V2"
+	case TPacketVersion3:
+		return "V3"
+	case TPacketVersionHighestAvailable:
+		return "HighestAvailable"
+	}
+	return "InvalidVersion"
+}
+
+// TPacket version numbers for use with NewHandle.
+const (
+	// TPacketVersionHighestAvailable tells NewHandle to use the highest available version of tpacket the kernel has available.
+	// This is the default, should a version number not be given in NewHandle's options.
+	TPacketVersionHighestAvailable = OptTPacketVersion(-1)
+	TPacketVersion1                = OptTPacketVersion(C.TPACKET_V1)
+	TPacketVersion2                = OptTPacketVersion(C.TPACKET_V2)
+	TPacketVersion3                = OptTPacketVersion(C.TPACKET_V3)
+	tpacketVersionMax              = TPacketVersion3
+	tpacketVersionMin              = -1
+)
+
+// Stats is a set of counters detailing the work TPacket has done so far.
+type Stats struct {
+	// Packets is the total number of packets returned to the caller.
+	Packets int64
+	// Polls is the number of blocking syscalls made waiting for packets.
+	// This should always be <= Packets, since with TPacket one syscall
+	// can (and often does) return many results.
+	Polls int64
+}
+
 func init() {
 	_ADDR_START = int(C.SOCKADDR_START)
 	_TX_START = int(C.TX_START)
@@ -134,6 +158,8 @@ func copyFx(dst, src []byte, len int) uint16 {
 	return uint16(len)
 }
 
+type CallbackFunc func([]byte, uint16, uint16)
+
 // IZSocket is an interface for interacting with eth-iface like
 // objects in the ZSocket code-base. This has basically
 // simply enabled the FakeInterface code to work.
@@ -141,7 +167,7 @@ type IZSocket interface {
 	MaxPackets() int32
 	MaxPacketSize() uint16
 	WrittenPackets() int32
-	Listen(fx func([]byte, uint16, uint16))
+	Listen(fx CallbackFunc)
 	WriteToBuffer(buf []byte, l uint16) (int32, error)
 	CopyToBuffer(buf []byte, l uint16, copyFx func(dst, src []byte, l uint16)) (int32, error)
 	FlushFrames() (uint, error, []error)
@@ -153,8 +179,13 @@ type IZSocket interface {
 type ZSocket struct {
 	socket         int
 	ifIndex        int
+	version        OptTPacketVersion
+	stats          Stats
+	numBlocks      int
+	blockSize      int
 	raw            []byte
-	nDrops         uint64
+	nPackets       uint
+	nDrops         uint
 	listening      int32
 	frameNum       int32
 	frameSize      uint16
@@ -186,8 +217,17 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 	}
 
 	log.Info("AF_PACKET Ring TX_START", _TX_START, "ADDR_START", _ADDR_START)
+
 	zs := new(ZSocket)
+	zs.rxEnabled = options&ENABLE_RX == ENABLE_RX
+	zs.txEnabled = options&ENABLE_TX == ENABLE_TX
+	zs.txLossDisabled = options&DISABLE_TX_LOSS == DISABLE_TX_LOSS
 	eT := int(C.htons(C.ushort(ethType)))
+	if zs.txEnabled {
+		// disable recv for transmit mode
+		zs.rxEnabled = false
+		eT = 0
+	}
 	// in Linux PF_PACKET is actually defined by AF_PACKET.
 	// SOCK_DGRAM not work, no packet listened
 	//sock, err := Socket(C.AF_PACKET, C.SOCK_DGRAM, eT)
@@ -206,27 +246,24 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 		log.Error("bind AF_PACKET", err)
 		return nil, err
 	}
-
-	zs.rxEnabled = options&ENABLE_RX == ENABLE_RX
-	zs.txEnabled = options&ENABLE_TX == ENABLE_TX
-	zs.txLossDisabled = options&DISABLE_TX_LOSS == DISABLE_TX_LOSS
+	zs.version = TPacketVersion1
 
 	if vv, err := GetsockoptInt(sock, C.SOL_PACKET, C.PACKET_VERSION); err == nil {
 		log.Info("PACKET_VERSION is", vv)
-		if vv != C.TPACKET_V1 {
-			if err := SetsockoptInt(sock, C.SOL_PACKET, C.PACKET_VERSION, C.TPACKET_V1); err != nil {
+		if zs.rxEnabled && vv != int(TPacketVersion3) {
+			if err := SetsockoptInt(sock, C.SOL_PACKET, C.PACKET_VERSION, C.TPACKET_V3); err != nil {
 				log.Error("Set PACKET_VERSION", err)
-				return nil, err
+				SetsockoptInt(sock, C.SOL_PACKET, C.PACKET_VERSION, C.TPACKET_V1)
+				// set to Packet_version 1
+			} else {
+				log.Info("Using PACKET_VERSION3 for recv")
+				zs.version = TPacketVersion3
 			}
 		}
+	} else {
+		log.Error("Get PACKET_VERSION", err)
+		return nil, err
 	}
-	/*
-		if err := syscall.SetsockoptInt(sock, C.SOL_PACKET, C.PACKET_VERSION, C.TPACKET_V1); err != nil {
-				log.Error("set PACKET_VERSION", err)
-				return nil, err
-			}
-		}
-	*/
 
 	req := &tpacketReq{}
 	pageSize := uint(os.Getpagesize())
@@ -237,18 +274,33 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 		frameSize = (maxFrameSize / pageSize) * pageSize
 	}
 	req.frameSize = frameSize
-	req.blockSize = req.frameSize * 8
-	req.blockNum = maxTotalFrames / 8
-	req.frameNum = (req.blockSize / req.frameSize) * req.blockNum
-	reqP := req.getPointer()
+	if zs.version == TPacketVersion3 {
+		req.blockSize = req.frameSize * framesPerBlock
+		req.blockNum = maxTotalFrames / framesPerBlock
+		req.frameNum = (req.blockSize / req.frameSize) * req.blockNum
+	} else {
+		req.blockSize = req.frameSize * 8
+		req.blockNum = maxTotalFrames / 8
+		req.frameNum = (req.blockSize / req.frameSize) * req.blockNum
+	}
+	reqP := req.getPointer(zs.version == TPacketVersion3) // for V1, true for V3
+	log.Infof("ZSocket %s, blockSize: %d KB, frameSize: %d, numBlock: %d",
+		zs.version, req.blockSize/1024, req.frameSize, req.blockNum)
+
+	zs.numBlocks = int(req.blockNum)
+	zs.blockSize = int(req.blockSize)
 	if zs.rxEnabled {
-		_, _, e1 := syscall.Syscall6(uintptr(syscall.SYS_SETSOCKOPT), uintptr(sock), uintptr(C.SOL_PACKET), uintptr(C.PACKET_RX_RING), uintptr(reqP), uintptr(req.size()), 0)
+		_, _, e1 := syscall.Syscall6(uintptr(syscall.SYS_SETSOCKOPT),
+			uintptr(sock), uintptr(C.SOL_PACKET), uintptr(C.PACKET_RX_RING),
+			uintptr(reqP), uintptr(req.size(zs.version == TPacketVersion3)), 0)
 		if e1 != 0 {
 			return nil, errnoErr(e1)
 		}
 	}
 	if zs.txEnabled {
-		_, _, e1 := syscall.Syscall6(uintptr(syscall.SYS_SETSOCKOPT), uintptr(sock), uintptr(C.SOL_PACKET), uintptr(C.PACKET_TX_RING), uintptr(reqP), uintptr(req.size()), 0)
+		_, _, e1 := syscall.Syscall6(uintptr(syscall.SYS_SETSOCKOPT),
+			uintptr(sock), uintptr(C.SOL_PACKET), uintptr(C.PACKET_TX_RING),
+			uintptr(reqP), uintptr(req.size(false)), 0)
 		if e1 != 0 {
 			return nil, errnoErr(e1)
 		}
@@ -262,9 +314,12 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 	}
 
 	size := req.blockSize * req.blockNum
-	if zs.txEnabled && zs.rxEnabled {
-		size *= 2
-	}
+	// never enable both TX and RX
+	/*
+		if zs.txEnabled && zs.rxEnabled {
+			size *= 2
+		}
+	*/
 
 	bs, err := syscall.Mmap(sock, int64(0), int(size), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED|syscall.MAP_LOCKED|syscall.MAP_POPULATE)
 	if err != nil {
@@ -276,11 +331,16 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 	i := 0
 	frLoc := 0
 	if zs.rxEnabled {
-		for i = 0; i < int(zs.frameNum); i++ {
-			frLoc = i * int(zs.frameSize)
-			rf := &ringFrame{}
-			rf.raw = zs.raw[frLoc : frLoc+int(zs.frameSize)]
-			zs.rxFrames = append(zs.rxFrames, rf)
+		switch zs.version {
+		case TPacketVersion1, TPacketVersion2:
+			for i = 0; i < int(zs.frameNum); i++ {
+				frLoc = i * int(zs.frameSize)
+				rf := &ringFrame{}
+				rf.raw = zs.raw[frLoc : frLoc+int(zs.frameSize)]
+				zs.rxFrames = append(zs.rxFrames, rf)
+			}
+		case TPacketVersion3:
+			// no need prepare block header
 		}
 	}
 	if zs.txEnabled {
@@ -296,6 +356,7 @@ func NewZSocket(ethIndex, options int, maxFrameSize, maxTotalFrames uint, ethTyp
 			zs.txFrames = append(zs.txFrames, tx)
 		}
 	}
+	zs.updateSocketStats()
 	return zs, nil
 }
 
@@ -323,40 +384,115 @@ func (zs *ZSocket) MaxPacketSize() uint16 {
 	return zs.frameSize - uint16(C.TPACKET_HDRLEN)
 }
 
+// Stats returns statistics on the packets the TPacket has seen so far.
+func (zs *ZSocket) Stats() (Stats, error) {
+	return Stats{
+		Polls:   atomic.LoadInt64(&zs.stats.Polls),
+		Packets: atomic.LoadInt64(&zs.stats.Packets),
+	}, nil
+}
+
 // Returns the amount of packets, written to the tx ring, that
 // haven't been flushed.
 func (zs *ZSocket) WrittenPackets() int32 {
 	return atomic.LoadInt32(&zs.txWritten)
 }
 
+// updateSocketStats clears socket counters and update ZSocket stats.
+func (h *ZSocket) updateSocketStats() error {
+	if h.version == TPacketVersion3 {
+		var ssv3 C.struct_tpacket_stats_v3
+		socklen := unsafe.Sizeof(ssv3)
+		slt := uint(socklen)
+
+		err := Getsockopt(h.socket, syscall.SOL_PACKET, syscall.PACKET_STATISTICS, unsafe.Pointer(&ssv3), &slt)
+		if err != nil {
+			return err
+		}
+		h.nPackets += uint(ssv3.tp_packets)
+		h.nDrops += uint(ssv3.tp_drops)
+	} else {
+		var ss C.struct_tpacket_stats
+		socklen := unsafe.Sizeof(ss)
+		slt := uint(socklen)
+
+		err := Getsockopt(h.socket, syscall.SOL_PACKET, syscall.PACKET_STATISTICS, unsafe.Pointer(&ss), &slt)
+		if err != nil {
+			return err
+		}
+		h.nPackets += uint(ss.tp_packets)
+		h.nDrops += uint(ss.tp_drops)
+	}
+	return nil
+}
+
 // Listen to all specified packets in the RX ring-buffer
-func (zs *ZSocket) Listen(fx func([]byte, uint16, uint16)) error {
+func (zs *ZSocket) Listen(fx CallbackFunc) error {
 	if !zs.rxEnabled {
 		return fmt.Errorf("the RX ring is disabled on this socket")
 	}
 	if !atomic.CompareAndSwapInt32(&zs.listening, 0, 1) {
 		return fmt.Errorf("there is already a listener on this socket")
 	}
-	pfd := &pollfd{}
-	pfd.fd = zs.socket
-	pfd.events = C.POLLERR | C.POLLIN
-	pfd.revents = 0
-	pfdP := uintptr(pfd.getPointer())
+	if zs.version == TPacketVersion3 {
+		return zs.listenV3(fx)
+	}
+	return zs.listenV1(fx)
+}
+
+func (zs *ZSocket) listenV3(fx CallbackFunc) error {
+	pfd := [1]PollFd{}
+	pfd[0].fd = zs.socket
+	pfd[0].events = C.POLLERR | C.POLLIN // | C.POLLRDNORM
+	pfd[0].revents = 0
+	//pfdP := uintptr(pfd.getPointer())
+	bdIndex := 0
+	pollTimeout := 50
+	for {
+		offs := bdIndex * zs.blockSize
+		bd := zs.raw[offs : offs+zs.blockSize]
+		pbd := (*blockDesc)(unsafe.Pointer(&bd[0]))
+		if (pbd.h1.block_status & C.TP_STATUS_USER) == 0 {
+			atomic.AddInt64(&zs.stats.Polls, 1)
+			n, e1 := Poll(pfd[:], pollTimeout)
+			if n == 0 {
+				// should be timeout
+				continue
+			}
+			if pfd[0].revents&C.POLLERR > 0 {
+				// get error poll
+				continue
+			}
+			if e1 != nil {
+				return e1
+			}
+		} else {
+			zs.walkBlock(bd, fx)
+			bdIndex = (bdIndex + 1) % zs.numBlocks
+		}
+	}
+}
+
+func (zs *ZSocket) listenV1(fx CallbackFunc) error {
+	pfd := [1]PollFd{}
+	pfd[0].fd = zs.socket
+	pfd[0].events = C.POLLERR | C.POLLIN // | C.POLLRDNORM
+	pfd[0].revents = 0
 	rxIndex := int32(0)
 	rf := zs.rxFrames[rxIndex]
 	pollTimeout := -1
-	pTOPointer := uintptr(unsafe.Pointer(&pollTimeout))
 	for {
 		for ; rf.rxReady(); rf = zs.rxFrames[rxIndex] {
 			//f := nettypes.Frame(rf.raw[rf.macStart():])
 			f := rf.raw[rf.macStart():]
 			fx(f, rf.tpLen(), rf.tpSnapLen())
-			nPacketRecv++
+			atomic.AddInt64(&zs.stats.Packets, 1)
 			rf.rxSet()
 			rxIndex = (rxIndex + 1) % zs.frameNum
 		}
-		_, _, e1 := syscall.Syscall(syscall.SYS_POLL, pfdP, uintptr(1), pTOPointer)
-		if e1 != 0 {
+		atomic.AddInt64(&zs.stats.Polls, 1)
+		_, e1 := Poll(pfd[:], pollTimeout)
+		if e1 != nil {
 			return e1
 		}
 	}
@@ -429,7 +565,7 @@ func (zs *ZSocket) FlushFrames() (uint, error, []error) {
 	if _, e1 := Sendto(zs.socket, nil, 0, nil); e1 != nil {
 		return framesFlushed, e1, nil
 	}
-	C.packetStats(C.int(zs.socket), (*C.ulong)(&zs.nDrops))
+	zs.updateSocketStats()
 	var errs []error = nil
 	for t, w := index, written; w > 0; w-- {
 		tx := zs.txFrames[t]
@@ -448,12 +584,13 @@ func (zs *ZSocket) FlushFrames() (uint, error, []error) {
 
 // Close socket
 func (zs *ZSocket) Close() error {
-	/*
-		log.Infof("zsocket sent: %d, recv: %d, sentError: %d, -- macStart: %d",
-			nPacketSent, nPacketRecv, nPacketWrong, macStart)
-	*/
-	log.Infof("zsocket sent: %d, recv: %d, sentError: %d",
-		nPacketSent, nPacketRecv, nPacketWrong)
+	zs.updateSocketStats()
+	if zs.rxEnabled {
+		log.Infof("zsocket recv: %d/%d, drops: %d, Polls: %d", zs.stats.Packets,
+			zs.nPackets, zs.nDrops, zs.stats.Polls)
+	} else {
+		log.Infof("zsocket sent: %d, sentError: %d", nPacketSent, nPacketWrong)
+	}
 	return syscall.Close(zs.socket)
 }
 
@@ -466,13 +603,20 @@ func (zs *ZSocket) getFreeTx() (*ringFrame, int32, error) {
 	}
 	tx := zs.txFrames[txIndex]
 	for !tx.txReady() {
-		pfd := &pollfd{}
-		pfd.fd = zs.socket
-		pfd.events = C.POLLERR | C.POLLOUT
-		pfd.revents = 0
+		pfd := [1]PollFd{}
+		pfd[0].fd = zs.socket
+		pfd[0].events = C.POLLERR | C.POLLOUT
+		pfd[0].revents = 0
 		timeout := -1
-		_, _, e1 := syscall.Syscall(syscall.SYS_POLL, uintptr(pfd.getPointer()), uintptr(1), uintptr(unsafe.Pointer(&timeout)))
-		if e1 != 0 {
+		/*
+			_, _, e1 := syscall.Syscall(syscall.SYS_POLL, uintptr(pfd.getPointer()), uintptr(1), uintptr(unsafe.Pointer(&timeout)))
+			if e1 != 0 {
+				return nil, -1, e1
+			}
+		*/
+		atomic.AddInt64(&zs.stats.Polls, 1)
+		_, e1 := Poll(pfd[:], timeout)
+		if e1 != nil {
 			return nil, -1, e1
 		}
 	}
@@ -495,30 +639,23 @@ type tpacketReq struct {
 	frameNum uint
 }
 
-func (tr *tpacketReq) getPointer() unsafe.Pointer {
-	req := C.struct_tpacket_req{C.uint(tr.blockSize),
-		C.uint(tr.blockNum), C.uint(tr.frameSize), C.uint(tr.frameNum)}
-	return unsafe.Pointer(&req)
+func (tr *tpacketReq) getPointer(isV3 bool) unsafe.Pointer {
+	if isV3 {
+		req := C.struct_tpacket_req3{C.uint(tr.blockSize), C.uint(tr.blockNum),
+			C.uint(tr.frameSize), C.uint(tr.frameNum), C.uint(50), 0, 0}
+		return unsafe.Pointer(&req)
+	} else {
+		req := C.struct_tpacket_req{C.uint(tr.blockSize),
+			C.uint(tr.blockNum), C.uint(tr.frameSize), C.uint(tr.frameNum)}
+		return unsafe.Pointer(&req)
+	}
 }
 
-func (req *tpacketReq) size() int {
+func (req *tpacketReq) size(isV3 bool) int {
+	if isV3 {
+		return int(unsafe.Sizeof(C.struct_tpacket_req3{}))
+	}
 	return int(unsafe.Sizeof(C.struct_tpacket_req{}))
-}
-
-type pollfd struct {
-	fd      int
-	events  int16
-	revents int16
-}
-
-func (pfd *pollfd) getPointer() unsafe.Pointer {
-	cPfd := C.struct_pollfd{C.int(pfd.fd), C.short(pfd.events),
-		C.short(pfd.revents)}
-	return unsafe.Pointer(&cPfd)
-}
-
-func (req *pollfd) size() int {
-	return int(unsafe.Sizeof(C.struct_pollfd{}))
 }
 
 type ringFrame struct {
@@ -531,36 +668,31 @@ func (rf *ringFrame) macStart() uint16 {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
 	//macStart = int(tpHdr.tp_mac)
 	return uint16(tpHdr.tp_mac)
-	//return nativeShort(rf.raw[_TP_MAC_START:_TP_MAC_STOP])
 }
 
 func (rf *ringFrame) tpLen() uint16 {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
 	return uint16(tpHdr.tp_len)
-	//return uint16(nativeInt(rf.raw[_TP_LEN_START:_TP_LEN_STOP]))
 }
 
 func (rf *ringFrame) setTpLen(v uint16) {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
 	tpHdr.tp_len = C.uint(v)
-	//nativePutInt(rf.raw[_TP_LEN_START:_TP_LEN_STOP], uint32(v))
 }
 
 func (rf *ringFrame) tpSnapLen() uint16 {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
 	return uint16(tpHdr.tp_snaplen)
-	//return uint16(nativeInt(rf.raw[_TP_SNAPLEN_START:_TP_SNAPLEN_STOP]))
 }
 
 func (rf *ringFrame) setTpSnapLen(v uint16) {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
 	tpHdr.tp_snaplen = C.uint(v)
-	//nativePutInt(rf.raw[_TP_SNAPLEN_START:_TP_SNAPLEN_STOP], uint32(v))
 }
 
 func (rf *ringFrame) rxReady() bool {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
-	return tpHdr.tp_status&C.TP_STATUS_USER == C.TP_STATUS_USER
+	return (tpHdr.tp_status&C.TP_STATUS_USER) == C.TP_STATUS_USER && atomic.CompareAndSwapUint32(&rf.mb, 0, 1)
 	//return nativeLong(rf.raw[0:HOST_LONG_SIZE])&_TP_STATUS_USER == _TP_STATUS_USER && atomic.CompareAndSwapUint32(&rf.mb, 0, 1)
 }
 
@@ -574,13 +706,13 @@ func (rf *ringFrame) rxSet() {
 
 func (rf *ringFrame) txWrongFormat() bool {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
-	return tpHdr.tp_status&C.TP_STATUS_WRONG_FORMAT == C.TP_STATUS_WRONG_FORMAT
+	return (tpHdr.tp_status & C.TP_STATUS_WRONG_FORMAT) == C.TP_STATUS_WRONG_FORMAT
 	//return nativeLong(rf.raw[0:HOST_LONG_SIZE])&_TP_STATUS_WRONG_FORMAT == _TP_STATUS_WRONG_FORMAT
 }
 
 func (rf *ringFrame) txReady() bool {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
-	return tpHdr.tp_status&(C.TP_STATUS_SEND_REQUEST|C.TP_STATUS_SENDING) == 0
+	return (tpHdr.tp_status & (C.TP_STATUS_SEND_REQUEST | C.TP_STATUS_SENDING)) == 0
 	//return nativeLong(rf.raw[0:HOST_LONG_SIZE])&(_TP_STATUS_SEND_REQUEST|_TP_STATUS_SENDING) == 0
 }
 
@@ -662,4 +794,71 @@ func (rf *ringFrame) printRxTxStatus(s uint64) {
 	if s&_TP_STATUS_TS_RAW_HARDWARE > 0 {
 		fmt.Printf(" Hardware")
 	}
+}
+
+type ringFrameV3 struct {
+	raw []byte
+}
+
+func (rf *ringFrameV3) macStart() uint16 {
+	tpHdr := (*C.struct_tpacket3_hdr)(unsafe.Pointer(&rf.raw[0]))
+	//macStart = int(tpHdr.tp_mac)
+	return uint16(tpHdr.tp_mac)
+}
+
+func (rf *ringFrameV3) tpLen() uint16 {
+	tpHdr := (*C.struct_tpacket3_hdr)(unsafe.Pointer(&rf.raw[0]))
+	return uint16(tpHdr.tp_len)
+}
+
+func (rf *ringFrameV3) tpSnapLen() uint16 {
+	tpHdr := (*C.struct_tpacket3_hdr)(unsafe.Pointer(&rf.raw[0]))
+	return uint16(tpHdr.tp_snaplen)
+}
+
+func (rf *ringFrameV3) rxReady() bool {
+	tpHdr := (*C.struct_tpacket3_hdr)(unsafe.Pointer(&rf.raw[0]))
+	return (tpHdr.tp_status & C.TP_STATUS_USER) == C.TP_STATUS_USER
+}
+
+func (rf *ringFrameV3) rxSet() {
+	tpHdr := (*C.struct_tpacket3_hdr)(unsafe.Pointer(&rf.raw[0]))
+	tpHdr.tp_status = C.TP_STATUS_KERNEL
+}
+
+type blockDesc C.struct_block_desc
+
+func (zs *ZSocket) walkBlock(bd []byte, fx CallbackFunc) {
+	pbd := (*blockDesc)(unsafe.Pointer(&bd[0]))
+	numPkts := int(pbd.h1.num_pkts)
+	var ppd *C.struct_tpacket3_hdr
+	offs := int(pbd.h1.offset_to_first_pkt)
+	for i := 0; i < numPkts; i++ {
+		ppd = (*C.struct_tpacket3_hdr)(unsafe.Pointer(&bd[offs]))
+		//if ppd.tp_status & C.TP_STATUS_USER == 0 { break }
+		tpLen := int(ppd.tp_len)
+		if tpLen == 0 {
+			log.Info("Got tpLen == 0")
+			break
+		}
+		rf := ringFrameV3{bd[offs:]}
+		macSt := int(rf.macStart())
+		f := rf.raw[macSt:]
+		fx(f, rf.tpLen(), rf.tpSnapLen())
+		atomic.AddInt64(&zs.stats.Packets, 1)
+		if ppd.tp_next_offset == 0 {
+			// should spec process
+			offs += int(tpAlign(int(ppd.tp_snaplen) + int(ppd.tp_mac)))
+			break
+		} else {
+			offs += int(ppd.tp_next_offset)
+		}
+		//rf.rxSet()
+		if offs >= zs.blockSize {
+			// error
+			log.Error("bad offs", offs)
+			break
+		}
+	}
+	pbd.h1.block_status = C.TP_STATUS_KERNEL
 }

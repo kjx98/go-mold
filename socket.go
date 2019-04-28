@@ -16,15 +16,16 @@ import (
 )
 
 //#cgo LDFLAGS: -ldl
-//#include <sys/types.h>          /* See NOTES */
-//#include <sys/socket.h>
-//#include <netinet/in.h>
-//#include <netinet/ip.h>
-//#include <net/ethernet.h>
-//#include <unistd.h>
-//#include <string.h>
-//#include <errno.h>
 /*
+#include <sys/types.h>          // See NOTES
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <net/ethernet.h>
+#include <unistd.h>
+#include <string.h>
+#include <poll.h>
+#include <errno.h>
 static int inline errNo() { return errno; }
 
 inline void buildIP(void *buff,int len, void *src, void *dst) {
@@ -53,6 +54,8 @@ static inline void copyAddr(struct sockaddr_in *addr, void *dstAddr) {
 }
 */
 import "C"
+
+const maxPollFd = 16
 
 func getIfAddr(ifn *net.Interface) (net.IP, error) {
 	ret := net.IPv4zero
@@ -150,9 +153,29 @@ func GetsockoptInt(fd, level, opt int) (value int, err error) {
 }
 
 func SetsockoptInt(fd, level, opt, val int) (err error) {
-	optLen := C.uint(unsafe.Sizeof(val))
+	v := C.int(val)
+	optLen := C.uint(unsafe.Sizeof(v))
 	ret := C.setsockopt(C.int(fd), C.int(level), C.int(opt),
 		unsafe.Pointer(&val), optLen)
+	if ret != 0 {
+		err = syscall.Errno(C.errNo())
+	}
+	return
+}
+
+func Getsockopt(fd, level, opt int, val unsafe.Pointer, vallen *uint) (err error) {
+	vlen := C.uint(*vallen)
+	ret := C.getsockopt(C.int(fd), C.int(level), C.int(opt), val, &vlen)
+	if ret != 0 {
+		err = syscall.Errno(C.errNo())
+	} else {
+		*vallen = uint(vlen)
+	}
+	return
+}
+
+func Setsockopt(fd, level, opt int, val unsafe.Pointer, vallen uint) (err error) {
+	ret := C.setsockopt(C.int(fd), C.int(level), C.int(opt), val, C.uint(vallen))
 	if ret != 0 {
 		err = syscall.Errno(C.errNo())
 	}
@@ -170,6 +193,33 @@ func Socket(domain, typ, proto int) (fd int, err error) {
 
 func Close(fd int) (err error) {
 	ret := C.close(C.int(fd))
+	if ret < 0 {
+		err = syscall.Errno(C.errNo())
+	}
+	return
+}
+
+type PollFd struct {
+	fd      int
+	events  int16
+	revents int16
+}
+
+func Poll(fds []PollFd, timeo int) (ret int, err error) {
+	nn := len(fds)
+	if nn == 0 {
+		return
+	}
+	var cfds [maxPollFd]C.struct_pollfd
+	if nn > maxPollFd {
+		nn = maxPollFd
+	}
+	for i := 0; i < nn; i++ {
+		cfds[i].fd = C.int(fds[i].fd)
+		cfds[i].events = C.short(fds[i].events)
+		cfds[i].revents = C.short(fds[i].revents)
+	}
+	ret = int(C.poll(&cfds[0], C.nfds_t(nn), C.int(timeo)))
 	if ret < 0 {
 		err = syscall.Errno(C.errNo())
 	}
