@@ -139,8 +139,8 @@ func ExitFunc() {
 	log.Warning("开始退出...")
 	log.Warning("执行退出...")
 	log.Warning("结束退出...")
-	// wait 3 seconds
-	time.Sleep(time.Second * 3)
+	// wait 5 seconds
+	time.Sleep(time.Second * 5)
 	os.Exit(1)
 }
 

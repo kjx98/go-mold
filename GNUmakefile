@@ -11,7 +11,7 @@
 #
 
 # Version for distribution
-VER=1_0r1
+VER=0.5.1
 
 MAKEFILE=GNUmakefile
 
@@ -44,6 +44,3 @@ bench:
 
 clean:
 	@rm -f bin/*
-
-distclean: clean
-	@rm -rf bin
