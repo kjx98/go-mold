@@ -127,9 +127,6 @@ func (c *zsockIf) copyFx(dst, src []byte, l int) uint16 {
 	if l <= 0 {
 		l = len(src)
 	}
-	if l > maxUDPsize {
-		return 0
-	}
 	copy(dst, c.dst)
 	copy(dst[6:], c.src)
 	//dst[12] = 8

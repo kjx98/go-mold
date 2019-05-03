@@ -17,7 +17,7 @@ MAKEFILE=GNUmakefile
 
 # We Use Compact Memory Model
 
-all: bin/client bin/server
+all: bin/client
 	@[ -d bin ] || exit
 
 win64: bin/client64.exe
@@ -27,11 +27,6 @@ bin/client:	cmd/client/main.go
 	@[ -d bin ] || mkdir bin
 	@go build -o $@ $^
 	@strip $@ || echo "client OK"
-
-bin/server:	cmd/server/main.go
-	@[ -d bin ] || mkdir bin
-	@go build -o $@ $^
-	@strip $@ || echo "server OK"
 
 bin/client64.exe:	cmd/client/main.go
 	@[ -d bin ] || mkdir bin
