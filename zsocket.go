@@ -693,13 +693,11 @@ func (rf *ringFrame) setTpSnapLen(v uint16) {
 func (rf *ringFrame) rxReady() bool {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
 	return (tpHdr.tp_status&C.TP_STATUS_USER) == C.TP_STATUS_USER && atomic.CompareAndSwapUint32(&rf.mb, 0, 1)
-	//return nativeLong(rf.raw[0:HOST_LONG_SIZE])&_TP_STATUS_USER == _TP_STATUS_USER && atomic.CompareAndSwapUint32(&rf.mb, 0, 1)
 }
 
 func (rf *ringFrame) rxSet() {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
 	tpHdr.tp_status = C.TP_STATUS_KERNEL
-	//nativePutLong(rf.raw[0:HOST_LONG_SIZE], uint64(_TP_STATUS_KERNEL))
 	// this acts as a memory barrier
 	atomic.StoreUint32(&rf.mb, 0)
 }
@@ -707,13 +705,11 @@ func (rf *ringFrame) rxSet() {
 func (rf *ringFrame) txWrongFormat() bool {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
 	return (tpHdr.tp_status & C.TP_STATUS_WRONG_FORMAT) == C.TP_STATUS_WRONG_FORMAT
-	//return nativeLong(rf.raw[0:HOST_LONG_SIZE])&_TP_STATUS_WRONG_FORMAT == _TP_STATUS_WRONG_FORMAT
 }
 
 func (rf *ringFrame) txReady() bool {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
 	return (tpHdr.tp_status & (C.TP_STATUS_SEND_REQUEST | C.TP_STATUS_SENDING)) == 0
-	//return nativeLong(rf.raw[0:HOST_LONG_SIZE])&(_TP_STATUS_SEND_REQUEST|_TP_STATUS_SENDING) == 0
 }
 
 func (rf *ringFrame) txMBReady() bool {
@@ -723,7 +719,6 @@ func (rf *ringFrame) txMBReady() bool {
 func (rf *ringFrame) txSet() {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
 	tpHdr.tp_status = C.TP_STATUS_SEND_REQUEST
-	//nativePutLong(rf.raw[0:HOST_LONG_SIZE], uint64(_TP_STATUS_SEND_REQUEST))
 }
 
 func (rf *ringFrame) txSetMB() {
@@ -733,7 +728,6 @@ func (rf *ringFrame) txSetMB() {
 func (rf *ringFrame) printRxStatus() {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
 	s := tpHdr.tp_status
-	//s := nativeLong(rf.raw[0:HOST_LONG_SIZE])
 	fmt.Printf("RX STATUS :")
 	if s == 0 {
 		fmt.Printf(" Kernel")
@@ -769,7 +763,6 @@ func (rf *ringFrame) printRxStatus() {
 func (rf *ringFrame) printTxStatus() {
 	tpHdr := (*C.struct_tpacket_hdr)(unsafe.Pointer(&rf.raw[0]))
 	s := tpHdr.tp_status
-	//s := nativeLong(rf.raw[0:HOST_LONG_SIZE])
 	fmt.Printf("TX STATUS :")
 	if s == 0 {
 		fmt.Printf(" Available")

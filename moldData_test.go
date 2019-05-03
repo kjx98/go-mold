@@ -1,5 +1,3 @@
-// +build !nativeEndian
-
 package MoldUDP
 
 import (
